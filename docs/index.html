@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Truck View: Camera Alignment Check</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <svg class="icon-truck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="1" y="6" width="18" height="10" rx="2"/>
+                        <circle cx="6" cy="19" r="2"/>
+                        <circle cx="14" cy="19" r="2"/>
+                        <path d="M19 6h3l2 4v4h-2"/>
+                    </svg>
+                    <h1>Truck View: Camera Alignment Check</h1>
+                </div>
+                <div class="system-info">
+                    
+                    
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container main-content">
+        <!-- Stats Overview -->
+        <section class="stats-section">
+            <div class="stat-card">
+               
+                <div class="stat-content">
+                    <div class="stat-value" id="activeCameraCount">--</div>
+                    <div class="stat-label">Active Strads Available</div>
+                </div>
+            </div>
+            <div class="stat-card">
+               
+                <div class="stat-content">
+                    <div class="stat-value">60-70</div>
+                    <div class="stat-label">FPS Processing</div>
+                </div>
+            </div>
+            <div class="stat-card">
+              
+                <div class="stat-content">
+                    <div class="stat-value">100+</div>
+                    <div class="stat-label">Features/Camera</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Kanban Board -->
+        <section class="kanban-board">
+            <!-- Normal Operation Column -->
+            <div class="kanban-column">
+                <div class="column-header status-normal">
+                    <span class="status-icon">✓</span>
+                    <h2>Normal Operation</h2>
+                    <span class="count">1</span>
+                </div>
+                <div class="column-content">
+                    <div class="scenario-card" data-scenario="normal">
+                        <div class="card-header">
+                            <h3>Aligned Cameras</h3>
+                            <span class="priority-badge priority-none">No Issues</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="description">All 4 cameras are properly aligned. Diamond markers connected at center.</p>
+                            <div class="metrics">
+                                <div class="metric">
+                                    <span class="metric-label">Status:</span>
+                                    <span class="metric-value status-ok">✓ Operational</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Alignment:</span>
+                                    <span class="metric-value">100%</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Last Check:</span>
+                                    <span class="metric-value">Just now</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-actions">
+                            <button class="btn btn-primary" onclick="viewScenario('normal')">
+                                <span>▶</span> View Demo
+                            </button>
+                            <button class="btn btn-secondary" onclick="showDetails('normal')">
+                                Details
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Low Priority Column -->
+            <div class="kanban-column">
+                <div class="column-header status-warning">
+                    <span class="status-icon">⚠</span>
+                    <h2>Misaligned - Low Priority</h2>
+                    <span class="count">2</span>
+                </div>
+                <div class="column-content">
+                    <div class="scenario-card" data-scenario="minor-1">
+                        <div class="card-header">
+                            <h3>Camera 1: Minor Shift</h3>
+                            <span class="priority-badge priority-low">Low</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="description">Minor misalignment detected. Diamond mostly connected. Within tolerance.</p>
+                            <div class="metrics">
+                                <div class="metric">
+                                    <span class="metric-label">Impact Type:</span>
+                                    <span class="metric-value">Pothole</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Rotation:</span>
+                                    <span class="metric-value">±2°</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Translation:</span>
+                                    <span class="metric-value">±15px</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-actions">
+                            <button class="btn btn-primary" onclick="viewScenario('minor-1')">
+                                <span>▶</span> View Demo
+                            </button>
+                            <button class="btn btn-secondary" onclick="showDetails('minor-1')">
+                                Details
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="scenario-card" data-scenario="minor-2">
+                        <div class="card-header">
+                            <h3>Camera 0: Wind Gust</h3>
+                            <span class="priority-badge priority-low">Low</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="description">Slight adjustment from wind. System compensating. No action required.</p>
+                            <div class="metrics">
+                                <div class="metric">
+                                    <span class="metric-label">Impact Type:</span>
+                                    <span class="metric-value">Wind</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Rotation:</span>
+                                    <span class="metric-value">±1.5°</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Translation:</span>
+                                    <span class="metric-value">±12px</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-actions">
+                            <button class="btn btn-primary" onclick="viewScenario('minor-2')">
+                                <span>▶</span> View Demo
+                            </button>
+                            <button class="btn btn-secondary" onclick="showDetails('minor-2')">
+                                Details
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Critical Column -->
+            <div class="kanban-column">
+                <div class="column-header status-critical">
+                    <span class="status-icon">🚨</span>
+                    <h2>Misaligned - Critical</h2>
+                    <span class="count">2</span>
+                </div>
+                <div class="column-content">
+                    <div class="scenario-card" data-scenario="critical-1">
+                        <div class="card-header">
+                            <h3>Camera 2: Debris Impact</h3>
+                            <span class="priority-badge priority-critical">Critical</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="description">⚠️ <strong>ALERT:</strong> Major misalignment! Diamond broken. Immediate recalibration needed.</p>
+                            <div class="metrics">
+                                <div class="metric">
+                                    <span class="metric-label">Impact Type:</span>
+                                    <span class="metric-value alert-text">Debris</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Rotation:</span>
+                                    <span class="metric-value alert-text">±8°</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Translation:</span>
+                                    <span class="metric-value alert-text">±60px</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-actions">
+                            <button class="btn btn-danger" onclick="viewScenario('critical-1')">
+                                <span>▶</span> View Demo
+                            </button>
+                            <button class="btn btn-secondary" onclick="showDetails('critical-1')">
+                                Details
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="scenario-card" data-scenario="critical-2">
+                        <div class="card-header">
+                            <h3>Camera 3: Strong Wind</h3>
+                            <span class="priority-badge priority-critical">Critical</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="description">⚠️ <strong>ALERT:</strong> Severe displacement detected. Diamond misaligned. Action required.</p>
+                            <div class="metrics">
+                                <div class="metric">
+                                    <span class="metric-label">Impact Type:</span>
+                                    <span class="metric-value alert-text">Wind</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Rotation:</span>
+                                    <span class="metric-value alert-text">±7°</span>
+                                </div>
+                                <div class="metric">
+                                    <span class="metric-label">Translation:</span>
+                                    <span class="metric-value alert-text">±55px</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-actions">
+                            <button class="btn btn-danger" onclick="viewScenario('critical-2')">
+                                <span>▶</span> View Demo
+                            </button>
+                            <button class="btn btn-secondary" onclick="showDetails('critical-2')">
+                                Details
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Full Impact Scenario Section -->
+        <section class="impact-scenario-section">
+            <h2 class="section-title">
+               
+                Complete Impact Scenario Timeline
+            </h2>
+            <div class="timeline-card">
+                <p class="timeline-description">
+                    Complete sequence showing all impact events in real-time. 
+                    System detects and responds to both minor and critical misalignments.
+                </p>
+                <button class="btn btn-large btn-primary" onclick="viewScenario('full-timeline')">
+                    <span>▶</span> Watch Full Impact Scenario (350 frames)
+                </button>
+            </div>
+        </section>
+
+        <!-- Image Upload Section -->
+        <section class="upload-section">
+            <div class="container">
+                <h2>🔬 Test Live Inference</h2>
+                <p class="upload-description">
+                    Upload a composite image with all 4 camera viewpoints (JPEG or PNG). Drag & drop or click to browse.
+                </p>
+                
+                <div id="dropZone" class="drop-zone">
+                    <input type="file" id="compositeImage" accept="image/jpeg,image/png" style="display: none;" />
+                    <div id="dropPlaceholder" class="drop-placeholder">
+                        <svg class="upload-icon-large" width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        <h3 class="drop-title">Drop Composite Image Here</h3>
+                        <p class="drop-hint">or <span class="drop-link">click to browse</span></p>
+                        <p class="drop-info">Supports JPEG and PNG • Max 10MB</p>
+                        <p class="drop-info-small">Image should contain all 4 camera viewpoints</p>
+                    </div>
+                    <div id="imagePreviewContainer" class="image-preview-container" style="display: none;">
+                        <img id="imagePreview" class="image-preview" alt="Composite image preview" />
+                        <button id="removeImageBtn" class="remove-image-btn" title="Remove image">×</button>
+                    </div>
+                </div>
+                
+                <div class="upload-status">
+                    <span id="uploadStatus">No image uploaded</span>
+                </div>
+                
+                <div class="upload-actions">
+                    <button id="runInferenceBtn" class="btn btn-primary btn-large" disabled>
+                        🚀 Run Inference
+                    </button>
+                    <button id="clearImageBtn" class="btn btn-secondary" style="display: none;">
+                        🗑️ Clear Image
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Results Section (Hidden Initially) -->
+        <section id="resultsSection" class="results-section" style="display: none;">
+            <div class="container">
+                <h2>📊 Inference Results</h2>
+                
+                <!-- Summary Section -->
+                <div class="results-summary">
+                    <div class="result-card">
+                        <h3>Misalignment Probability</h3>
+                        <div class="probability-bar">
+                            <div class="probability-fill" style="width: 0%;"></div>
+                        </div>
+                        <div class="probability-value">0%</div>
+                    </div>
+                    
+                    <div class="result-card">
+                        <h3>Severity Classification</h3>
+                        <span class="badge badge-success">Normal</span>
+                        <p class="severity-description">
+                            Inference result will be displayed here.
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- 6-DOF Pose Section -->
+                <div class="pose-section">
+                    <h3>6-DOF Camera Pose</h3>
+                    <div class="pose-grid">
+                        <div class="pose-group">
+                            <h4>Rotation</h4>
+                            <table class="pose-table">
+                                <tr>
+                                    <td>Roll:</td>
+                                    <td id="poseRoll">0.0°</td>
+                                </tr>
+                                <tr>
+                                    <td>Pitch:</td>
+                                    <td id="posePitch">0.0°</td>
+                                </tr>
+                                <tr>
+                                    <td>Yaw:</td>
+                                    <td id="poseYaw">0.0°</td>
+                                </tr>
+                            </table>
+                        </div>
+                        
+                        <div class="pose-group">
+                            <h4>Translation</h4>
+                            <table class="pose-table">
+                                <tr>
+                                    <td>X:</td>
+                                    <td id="poseX">0.00 m</td>
+                                </tr>
+                                <tr>
+                                    <td>Y:</td>
+                                    <td id="poseY">0.00 m</td>
+                                </tr>
+                                <tr>
+                                    <td>Z:</td>
+                                    <td id="poseZ">0.00 m</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Uncertainty Section -->
+                <div class="uncertainty-section">
+                    <h3>Uncertainty Estimates</h3>
+                    <div class="uncertainty-grid">
+                        <div class="uncertainty-card">
+                            <span class="uncertainty-label">Aleatoric Uncertainty:</span>
+                            <span class="uncertainty-value" id="aleatoricUncertainty">0.00</span>
+                            <span class="uncertainty-info" title="Data-dependent uncertainty (noise in observations)">ℹ️</span>
+                        </div>
+                        <div class="uncertainty-card">
+                            <span class="uncertainty-label">Epistemic Uncertainty:</span>
+                            <span class="uncertainty-value" id="epistemicUncertainty">0.00</span>
+                            <span class="uncertainty-info" title="Model-dependent uncertainty (lack of training data)">ℹ️</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Action Buttons -->
+                <div class="results-actions">
+                    <button class="btn btn-primary" onclick="downloadResults()">
+                        💾 Download Results (JSON)
+                    </button>
+                    <button class="btn btn-secondary" onclick="resetInference()">
+                        🔄 Run Another Inference
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal for Video Display -->
+    <div id="videoModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Scenario Playback</h2>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="videoContainer" class="video-container">
+                    <!-- Video will be injected here -->
+                </div>
+                <div id="scenarioInfo" class="scenario-info">
+                    <!-- Scenario details will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Modal for Inference -->
+    <div id="loadingModal" class="loading-modal" style="display: none;">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <h3 id="loadingMessage">Uploading images...</h3>
+            <p id="loadingDetails">Processing 4 camera snapshots</p>
+            <button class="btn btn-secondary" onclick="cancelInference()">
+                Cancel
+            </button>
+        </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- LIVE MONITORING PANEL (below main content)                          -->
+    <!-- Shows real screenshots from monitoring cycles + augmented fallback  -->
+    <!-- ================================================================== -->
+    <section class="live-monitoring-section" id="liveMonitoringSection">
+        <div class="container">
+            <h2>📷 Live Monitoring Feed</h2>
+            <p class="section-subtitle">
+                Real screenshots from monitoring cycles. Falls back to augmented dataset samples when no live data is available.
+            </p>
+            
+            <div class="live-controls">
+                <select id="liveSourceFilter">
+                    <option value="auto">Auto (Live → Augmented fallback)</option>
+                    <option value="live">Live Only</option>
+                    <option value="augmented">Augmented Dataset Only</option>
+                </select>
+                <select id="liveSeverityFilter">
+                    <option value="">All Severities</option>
+                    <option value="none">None (Aligned)</option>
+                    <option value="moderate">Moderate</option>
+                    <option value="critical">Critical</option>
+                </select>
+                <button class="btn btn-secondary" onclick="refreshLiveImages()">🔄 Refresh</button>
+            </div>
+            
+            <div id="liveImageGrid" class="live-image-grid">
+                <!-- Populated dynamically -->
+                <p class="loading-text">Loading images...</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Strad Details Modal -->
+    <div id="stradDetailModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="stradDetailTitle">Strad Details</h2>
+                <button class="modal-close" onclick="closeStradDetailModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="stradDetailBody">
+                <!-- Populated dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

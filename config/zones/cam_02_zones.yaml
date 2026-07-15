@@ -1,0 +1,22 @@
+# Zone definitions for camera cam_02
+# Coordinates are normalized [0.0, 1.0] relative to camera resolution
+zones:
+  cam_02:
+    - zone_type: "no_people"
+      vertices:
+        - [0.0, 0.0]
+        - [1.0, 0.0]
+        - [1.0, 0.5]
+        - [0.0, 0.5]
+    - zone_type: "operation"
+      vertices:
+        - [0.0, 0.5]
+        - [0.5, 0.5]
+        - [0.5, 1.0]
+        - [0.0, 1.0]
+    - zone_type: "dropoff"
+      vertices:
+        - [0.5, 0.5]
+        - [1.0, 0.5]
+        - [1.0, 1.0]
+        - [0.5, 1.0]

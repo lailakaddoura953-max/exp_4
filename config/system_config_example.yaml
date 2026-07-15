@@ -1,0 +1,114 @@
+# Camera Misalignment Detection System Configuration
+
+# System parameters
+system:
+  log_level: INFO
+  real_time_mode: true
+  target_frame_rate: 10  # Hz
+  max_memory_mb: 200
+
+# Camera configurations
+cameras:
+  - camera_id: 0
+    stream_url: "rtsp://camera0.local/stream"
+    resolution: [1920, 1080]
+    fps: 30
+    
+  - camera_id: 1
+    stream_url: "rtsp://camera1.local/stream"
+    resolution: [1920, 1080]
+    fps: 30
+    
+  - camera_id: 2
+    stream_url: "rtsp://camera2.local/stream"
+    resolution: [1920, 1080]
+    fps: 30
+    
+  - camera_id: 3
+    stream_url: "rtsp://camera3.local/stream"
+    resolution: [1920, 1080]
+    fps: 30
+
+# Frame synchronization
+synchronization:
+  tolerance_ms: 50.0
+  max_buffer_size_per_camera: 30
+  sync_failure_threshold: 10
+
+# Feature extraction
+feature_extraction:
+  max_features: 1000
+  min_features_threshold: 50
+  scale_factor: 1.2
+  n_levels: 8
+
+# Optical flow
+optical_flow:
+  pyr_scale: 0.5
+  levels: 3
+  winsize: 15
+  iterations: 3
+  poly_n: 5
+  poly_sigma: 1.2
+
+# SLAM tracking
+slam:
+  min_tracking_confidence: 0.5
+  relocalization_timeout_sec: 30
+
+# Detection thresholds (per camera)
+detection_thresholds:
+  camera_0:
+    position_threshold_m: 0.05      # meters
+    angle_threshold_deg: 2.0        # degrees
+    flow_consistency_threshold: 0.7 # [0.0-1.0]
+    
+  camera_1:
+    position_threshold_m: 0.05
+    angle_threshold_deg: 2.0
+    flow_consistency_threshold: 0.7
+    
+  camera_2:
+    position_threshold_m: 0.05
+    angle_threshold_deg: 2.0
+    flow_consistency_threshold: 0.7
+    
+  camera_3:
+    position_threshold_m: 0.05
+    angle_threshold_deg: 2.0
+    flow_consistency_threshold: 0.7
+
+# Severity classification
+severity:
+  low:
+    position_multiplier: 1.0
+    angle_multiplier: 1.0
+  medium:
+    position_multiplier: 2.0
+    angle_multiplier: 2.0
+  high:
+    position_multiplier: 4.0
+    angle_multiplier: 4.0
+  critical:
+    position_multiplier: 8.0
+    angle_multiplier: 8.0
+
+# Alert system
+alerts:
+  enabled: true
+  channels:
+    - email
+    - dashboard
+  rate_limit_sec: 60
+  min_severity_for_alert: HIGH  # LOW, MEDIUM, HIGH, CRITICAL
+
+# Database logging
+database:
+  enabled: false
+  connection_string: ""  # Leave empty for file-based logging
+  event_buffer_size: 1000
+  status_log_interval_sec: 10
+
+# Calibration file
+calibration:
+  file: "config/calibration.json"

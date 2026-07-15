@@ -1,0 +1,195 @@
+# Auto-Annotation Pipeline Setup Guide
+## Grounded SAM 2 + Grounding DINO (Local, No Internet Required After Setup)
+
+This guide sets up the full pipeline on the private machine. Run every step
+in order. Estimated total time: 20–40 minutes depending on internet speed.
+
+---
+
+## Prerequisites
+
+- Windows 10/11 or Ubuntu 20.04+
+- Python 3.10 (required — SAM 2 has compile issues on 3.11+ with some CUDA builds)
+- CUDA 12.0 or later + matching cuDNN installed (run `nvcc --version` to confirm)
+- At least 4 GB VRAM (**use `sam2.1_hiera_small` on 4 GB cards — see Step 7**)
+- At least 8 GB free disk space for weights
+
+If you only have CPU (no GPU), the pipeline still works but is very slow
+(~30–60s per image). Set `DEVICE = "cpu"` in `auto_annotate.py`.
+
+---
+
+## Step 1 — Clone Grounded SAM 2
+
+```bash
+git clone https://github.com/IDEA-Research/Grounded-SAM-2.git
+cd Grounded-SAM-2
+```
+
+Keep note of this directory — you'll set `GSAM2_REPO` in `auto_annotate.py`
+to point here.
+
+---
+
+## Step 2 — Create a virtual environment
+
+```bash
+python -m venv .venv_annotation
+# Windows:
+.venv_annotation\Scripts\activate
+# Linux/Mac:
+source .venv_annotation/bin/activate
+```
+
+---
+
+## Step 3 — Install PyTorch with CUDA
+
+Go to https://pytorch.org/get-started/locally/ and copy the install command
+for your CUDA version. For CUDA 12.1:
+
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+Verify GPU is available:
+```bash
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+
+---
+
+## Step 4 — Install SAM 2
+
+From inside the Grounded-SAM-2 repo directory:
+
+```bash
+pip install -e .
+```
+
+---
+
+## Step 5 — Install Grounding DINO
+
+This requires CUDA compilation. Make sure `CUDA_HOME` is set first:
+
+```bash
+# Windows (adjust path to your CUDA install):
+set CUDA_HOME=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1
+
+# Linux:
+export CUDA_HOME=/usr/local/cuda-12.1
+```
+
+Then install:
+```bash
+pip install --no-build-isolation -e grounding_dino
+```
+
+If this fails on Windows with a compiler error, install Visual Studio Build
+Tools (the C++ workload) from https://visualstudio.microsoft.com/downloads/
+and retry.
+
+---
+
+## Step 6 — Install remaining dependencies
+
+```bash
+pip install opencv-python supervision transformers numpy pillow tqdm
+```
+
+---
+
+## Step 7 — Download SAM 2 weights
+
+From inside `Grounded-SAM-2/checkpoints/`:
+
+```bash
+# Windows (PowerShell):
+cd checkpoints
+bash download_ckpts.sh
+# If bash isn't available on Windows, download manually:
+```
+
+Manual download URLs (save into `Grounded-SAM-2/checkpoints/`):
+- **sam2.1_hiera_large.pt** (recommended, ~2.4 GB):
+  https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt
+- **sam2.1_hiera_base_plus.pt** (smaller, ~800 MB, faster but less accurate):
+  https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt
+
+Use large if you have 16 GB VRAM, base_plus if you have 8 GB.
+
+---
+
+## Step 8 — Download Grounding DINO weights
+
+From inside `Grounded-SAM-2/gdino_checkpoints/`:
+
+```bash
+cd gdino_checkpoints
+bash download_ckpts.sh
+```
+
+Manual download (save into `Grounded-SAM-2/gdino_checkpoints/`):
+- **groundingdino_swint_ogc.pth** (~700 MB):
+  https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth
+- **GroundingDINO_SwinT_OGC.py** (config file, already in repo at
+  `grounding_dino/groundingdino/config/GroundingDINO_SwinT_OGC.py`)
+
+---
+
+## Step 9 — Configure paths in auto_annotate.py
+
+Open `scripts/annotation/auto_annotate.py` and set these at the top:
+
+```python
+GSAM2_REPO       = r"C:\path\to\Grounded-SAM-2"
+SAM2_CHECKPOINT  = r"C:\path\to\Grounded-SAM-2\checkpoints\sam2.1_hiera_large.pt"
+SAM2_CONFIG      = "configs/sam2.1/sam2.1_hiera_l.yaml"
+GDINO_CHECKPOINT = r"C:\path\to\Grounded-SAM-2\gdino_checkpoints\groundingdino_swint_ogc.pth"
+GDINO_CONFIG     = r"C:\path\to\Grounded-SAM-2\grounding_dino\groundingdino\config\GroundingDINO_SwinT_OGC.py"
+DEVICE           = "cuda"   # or "cpu"
+```
+
+---
+
+## Step 10 — Verify the setup
+
+```bash
+python scripts/annotation/auto_annotate.py --verify
+```
+
+This loads both models and runs inference on a single test image without
+reading any real data. If you see "Models loaded OK" the setup is complete.
+
+---
+
+## Running the pipeline
+
+```bash
+# Auto-annotate all images, 2 workers
+python scripts/annotation/auto_annotate.py \
+    --input_dir image_data_normal \
+    --output_dir image_data_annotated \
+    --confidence 0.35 \
+    --review_threshold 0.55
+
+# Then review uncertain annotations
+python scripts/annotation/review_annotations.py \
+    --review_dir image_data_annotated/review_queue
+```
+
+See each script's `--help` for all options.
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `CUDA out of memory` | Switch to `sam2.1_hiera_base_plus.pt` or reduce `--batch_size` to 1 |
+| Grounding DINO compile error | Ensure `CUDA_HOME` is set and matches your PyTorch CUDA version |
+| Black/blank masks | Image may have Ocularis UI overlay — increase `--chrome_margin` |
+| Too many false detections | Raise `--confidence` threshold (try 0.45–0.55) |
+| Too few detections | Lower `--confidence` (try 0.25–0.30) and check text prompts |
+| `ModuleNotFoundError: groundingdino` | Run from inside the Grounded-SAM-2 repo or add it to PYTHONPATH |

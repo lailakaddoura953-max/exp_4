@@ -1,0 +1,145 @@
+# ==============================================================================
+# Architecture A Configuration: CNN Feature Extractor + LiteFlowNet2
+# ==============================================================================
+#
+# This configuration uses LiteFlowNet2 for optical flow estimation.
+# LiteFlowNet2 is more accurate but uses more memory than SpyNet.
+#
+# Expected Performance:
+# - Training VRAM: ~8GB (batch_size=4)
+# - Inference VRAM: ~4GB (batch_size=4)
+# - Inference Latency: ~80ms for 4-camera batch
+# - Detection Accuracy: Target ≥95% (to be measured after training)
+#
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Architecture Selection
+# ------------------------------------------------------------------------------
+# Which neural network components to use
+
+feature_extractor: "cnn_pyramid"  # 4-level pyramid feature extractor (only option)
+flow_network: "liteflownet2"      # Architecture A: LiteFlowNet2 optical flow
+
+# ------------------------------------------------------------------------------
+# Operational Mode
+# ------------------------------------------------------------------------------
+# How the system operates: neural network only, rule-based only, or hybrid
+
+mode: "neural_network"  # Options: "neural_network", "rule_based", "hybrid"
+
+# Hybrid mode weights (only used if mode="hybrid")
+# These determine how much weight to give each detection approach
+# Must sum to 1.0
+hybrid_weights:
+  neural: 0.7        # Neural network contributes 70%
+  rule_based: 0.3    # Rule-based system contributes 30%
+
+# ------------------------------------------------------------------------------
+# Model Checkpoint
+# ------------------------------------------------------------------------------
+# Path to trained model weights
+
+checkpoint_path: "./checkpoints/architecture_a_best.pth"
+
+# ------------------------------------------------------------------------------
+# Inference Settings
+# ------------------------------------------------------------------------------
+# Parameters controlling how inference is performed
+
+# Confidence threshold for binary classification (0.0 to 1.0)
+# Predictions above this are classified as "misaligned"
+# Lower threshold = more sensitive (more detections, including false positives)
+# Higher threshold = more conservative (fewer detections, might miss some)
+confidence_threshold: 0.5
+
+# Monte Carlo Dropout for uncertainty estimation
+# When enabled, runs inference multiple times to estimate prediction confidence
+# Useful for identifying edge cases where the model is uncertain
+# Warning: Enabling this makes inference ~10× slower
+enable_uncertainty: false
+
+# Number of Monte Carlo samples (only used if enable_uncertainty=true)
+# More samples = more accurate uncertainty estimates but slower
+# Typical values: 10-50
+uncertainty_samples: 10
+
+# Batch size: number of images processed in parallel
+# Typically 4 for processing all 4 cameras at once
+# Larger batch_size uses more VRAM but may be slightly faster
+# If you get CUDA out of memory errors, reduce this to 2 or 1
+batch_size: 4
+
+# ------------------------------------------------------------------------------
+# Image Preprocessing
+# ------------------------------------------------------------------------------
+# How input images are prepared before feeding to neural network
+
+# Target resolution [height, width] in pixels
+# Images are resized to this resolution before processing
+# Maximum: 750×750 (memory constraint for consumer GPUs)
+# Recommended: 640×640 (good balance of quality and speed)
+# Lower resolution = faster but may miss fine details
+# Higher resolution = more accurate but slower and uses more VRAM
+target_resolution: [640, 640]
+
+# Normalization statistics (ImageNet defaults)
+# These are standard values used by most pre-trained CNNs
+# Format: [Red, Green, Blue] channel values
+# Don't change these unless you know what you're doing
+normalization_mean: [0.485, 0.456, 0.406]
+normalization_std: [0.229, 0.224, 0.225]
+
+# ------------------------------------------------------------------------------
+# Performance Settings
+# ------------------------------------------------------------------------------
+# Hardware and optimization configuration
+
+# Device for computation
+# "cuda" = use GPU (strongly recommended)
+# "cpu" = use CPU (very slow, not recommended)
+device: "cuda"
+
+# Mixed precision training/inference
+# Uses FP16 (half precision) for most operations, FP32 for critical parts
+# Reduces VRAM usage by ~30-40% with minimal accuracy impact
+# Requires GPU with compute capability 7.0+ for best performance
+# Disable if you experience numerical instability issues
+mixed_precision: true
+
+# ------------------------------------------------------------------------------
+# Logging and Monitoring
+# ------------------------------------------------------------------------------
+# Where to save logs and training progress
+
+# Directory for TensorBoard logs (during training)
+# View with: tensorboard --logdir ./runs
+tensorboard_dir: "./runs"
+
+# Logging verbosity
+# DEBUG = very verbose, shows all internal operations
+# INFO = normal verbosity, shows important events
+# WARNING = only warnings and errors
+# ERROR = only errors
+log_level: "INFO"
+
+# ==============================================================================
+# Notes for Users
+# ==============================================================================
+#
+# Memory Usage Tips:
+# - If CUDA out of memory: reduce batch_size to 2 or target_resolution to [512, 512]
+# - Training uses ~2× more memory than inference (stores gradients)
+# - enable_uncertainty uses ~10× more memory (runs network multiple times)
+#
+# Performance Tips:
+# - Lower target_resolution improves speed but may reduce accuracy
+# - Disabling mixed_precision uses more VRAM but may be slightly more stable
+# - batch_size=4 is optimal for 4-camera systems (processes all cameras at once)
+#
+# Troubleshooting:
+# - If model fails to load: check checkpoint_path exists and is a valid .pth file
+# - If inference is slow: ensure device="cuda" and GPU is available
+# - If results are poor: try adjusting confidence_threshold (0.4-0.6 range)
+#
+# ==============================================================================

@@ -1,0 +1,35 @@
+Naming convention:
+
+[Letter A - K] [Number 1 - 13] - direction (n, w, e, s - can be NE or SW, etc) ('PTZ' might be there, or its '[Letter A - K] PTZ') - Berth/Block/TELs/Wall St/Reefer rack/Rail/Pedestal/Flipline/Plug Reefer/Airlocks/CEG/AssetMangement/Exit Fuel [Number]
+Causeway Sign #X
+ADM Parking
+TEL 01 - 144
+FleetView Recording
+[Letter A - K ] - [Letter A - K]
+
+examples:
+A10 - NE - Berth 404
+A2 - B
+A8 - SE PTZ - Block 1F
+G13 - C PTZ - Block 4A
+J10 - A PTZ North - Plug Reefer
+TEL 118
+K11 - D PTZ - Exit Fuel
+
+
+What something being present in the name means and how it should be used when determining the rules for checking that camera:
+[] Berth  - humans allowed (with vest and helmet), check for container hazards (misalignment, open doors) and vehicles at unsafe distance
+[] Block  - No humans, check container and vehicle hazards
+[] TELs - humans allowed (just vest), check for container hazards and possibly humans stepping outside of designated trucker spot
+[] Wall St - No humans, check container hazards and vehicle proximity
+[] Reefer rack - No humans, check container hazards
+[] Rail  - No humans, check container hazards
+[] Pedestal  - No humans, check container hazards
+[] Flipline  - No humans, check container hazards
+[] Plug Reefer  - No humans, check container and vehicle hazards
+[] Airlocks  - (unsure)
+[] CEG  - (unsure)
+[] AssetManagement  - Humans in vests possibly, check vehicle hazards (unsure)
+[] Exit Fuel  - Vests, check vehicle hazards
+TEL  - Vests mandatory, humans only in dedicated spot and going to-from truck
+

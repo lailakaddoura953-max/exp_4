@@ -1,0 +1,37 @@
+# Annotation pipeline requirements
+# Python 3.12 required (3.10+ supported)
+#
+# STEP 1 — Install PyTorch with CUDA FIRST (before this file):
+#   pip install torch==2.3.1+cu118 torchvision==0.18.1+cu118 torchaudio==2.3.1+cu118 \
+#       --index-url https://download.pytorch.org/whl/cu118
+#
+# STEP 2 — Then install this file:
+#   pip install -r requirements.txt
+#
+# STEP 3 — Install SAM 2 and Grounding DINO from source (see SETUP.md):
+#   pip install -e <path-to-Grounded-SAM-2>
+#   pip install --no-build-isolation -e <path-to-Grounded-SAM-2>/grounding_dino
+#
+# PyTorch is intentionally excluded from this file because it needs
+# the --index-url flag for the CUDA wheel. Installing it via this file
+# without that flag would pull the CPU-only version from PyPI.
+
+# Core CV
+opencv-python==4.11.0.86
+Pillow==10.4.0
+numpy==1.26.4
+
+# Annotation pipeline utilities
+tqdm==4.67.1
+supervision==0.25.1
+
+# Model loading / HuggingFace (used by Grounding DINO HF variant)
+transformers==4.44.2
+huggingface-hub==0.24.7
+safetensors==0.4.5
+tokenizers==0.19.1
+
+# General utilities
+PyYAML==6.0.2
+scipy==1.14.1
+matplotlib==3.9.4

@@ -1,0 +1,67 @@
+# Hazard Detection System Configuration
+# This is the default configuration file for the hazard detection system.
+
+system:
+  frame_sample_count: 6          # 5-8 frames per camera
+  per_camera_timeout_seconds: 30
+  config_path: "config/hazard_detection.yaml"
+
+cameras:
+  sequence: ["cam_01", "cam_02", "cam_03", "cam_04"]
+
+yolo:
+  checkpoint_path: "checkpoints/hazard_yolo/weights/best.pt"  # update to your local path
+  device: "cuda"
+  input_resolution: 640          # 320-750
+  confidence_threshold: 0.5
+
+detection:
+  human:
+    confidence_threshold: 0.5
+  container:
+    confidence_threshold: 0.5
+    flipped_aspect_ratio_threshold: 1.5
+    safe_overlap_threshold: 0.3
+    ground_level_threshold: 0.4
+    motion_threshold: 0.7
+    iou_threshold: 0.5
+  orientation:
+    confidence_threshold: 0.5
+
+alerts:
+  rate_limit_seconds: 60         # 10-300
+  channels: ["email", "dashboard"]
+
+zone_maps:
+  cam_01: "config/zones/cam_01_zones.yaml"
+  cam_02: "config/zones/cam_02_zones.yaml"
+
+diagnostics:
+  log_levels:
+    hazard_detection.frame_sampler: INFO
+    hazard_detection.yolo_detector: INFO
+    hazard_detection.human_detector: INFO
+    hazard_detection.container_analyzer: INFO
+    hazard_detection.alert_dispatcher: INFO
+    hazard_detection.performance: INFO
+    hazard_detection.pipeline_tracer: DEBUG
+    hazard_detection.diagnostic_dumper: DEBUG
+  dump_directory: "diagnostics/dumps"
+  dump_enabled: true
+  max_dumps: 1000
+  tracing_enabled: true
+  log_file: null
+
+training:
+  epochs: 100
+  batch_size: 16
+  learning_rate: 0.001
+  image_resolution: 640
+  checkpoint_interval: 5
+  data_yaml: "roboflow data/data.yaml"
+  augmentation:
+    rotation: true
+    flip: true
+    brightness: true
+    contrast: true
+    noise: true

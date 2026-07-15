@@ -1,0 +1,56 @@
+# Virtual environments
+.venv/
+.venv_annotation/
+
+# Large data — not committed, set up locally on each machine
+roboflow data/
+image_data_normal/
+image_data_normal_augmented_hazards/
+image_data_annotated/
+maps/
+
+# Private/sensitive config
+config/ip_addresses_template.json
+config/ip_addresses.json
+
+# Large media files
+docs/01_normal_operation.gif
+docs/01_normal_operation.mp4
+docs/02_impact_scenario.gif
+docs/02_impact_scenario.mp4
+
+# Model weights
+*.pt
+*.pth
+*.onnx
+checkpoints/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Test artifacts
+.hypothesis/
+.pytest_cache/
+tests/output/
+
+# IDE
+.vscode/
+.kiro/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Diagnostics / generated outputs
+diagnostics/
+logs/
+*.log
+*.jsonl
+
+# Evaluation results (generated, not source)
+evaluation_results/

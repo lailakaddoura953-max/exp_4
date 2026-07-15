@@ -1,0 +1,189 @@
+# ==============================================================================
+# Hybrid Mode Configuration: Neural Network + Rule-Based Detection
+# ==============================================================================
+#
+# This configuration runs BOTH the neural network and rule-based detection
+# systems in parallel, then combines their predictions using weighted averaging.
+#
+# Use hybrid mode when:
+# - You want maximum robustness and reliability
+# - You have backup detection if neural network fails
+# - You want to leverage both learned and engineered features
+# - You're in a safety-critical application
+#
+# Performance:
+# - Latency: ~2× longer than neural-only (runs both systems)
+# - VRAM: Same as neural-only (rule-based runs on CPU)
+# - Accuracy: Often better than either system alone
+# - Reliability: Automatic fallback if neural network fails
+#
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Architecture Selection
+# ------------------------------------------------------------------------------
+# Which neural network to use (rule-based system always uses same approach)
+
+feature_extractor: "cnn_pyramid"
+flow_network: "liteflownet2"  # Can also use "spynet" for faster hybrid mode
+
+# ------------------------------------------------------------------------------
+# Operational Mode
+# ------------------------------------------------------------------------------
+# HYBRID MODE: Runs both neural network and rule-based detection
+
+mode: "hybrid"  # This enables parallel execution of both systems
+
+# Hybrid weights control how predictions are combined
+# These must sum to 1.0
+# Higher neural weight = trust neural network more
+# Higher rule_based weight = trust traditional approach more
+#
+# Recommended tuning:
+# - Start with 0.7/0.3 (favor neural network)
+# - If neural network has higher false positive rate, use 0.5/0.5
+# - If rule-based system is more reliable in your scenario, use 0.3/0.7
+# - Tune on validation set to find optimal balance
+hybrid_weights:
+  neural: 0.7        # Neural network contributes 70% to final prediction
+  rule_based: 0.3    # Rule-based system contributes 30% to final prediction
+
+# ------------------------------------------------------------------------------
+# Model Checkpoint
+# ------------------------------------------------------------------------------
+# Path to trained neural network weights
+
+checkpoint_path: "./checkpoints/architecture_a_best.pth"
+
+# ------------------------------------------------------------------------------
+# Inference Settings
+# ------------------------------------------------------------------------------
+
+# Confidence threshold applied to COMBINED prediction
+# The system computes: 
+#   combined = 0.7 * neural_prediction + 0.3 * rule_based_prediction
+# Then applies threshold to combined value
+confidence_threshold: 0.5
+
+# Uncertainty estimation (optional)
+# In hybrid mode, this only applies to neural network component
+# Rule-based system doesn't provide uncertainty estimates
+enable_uncertainty: false
+uncertainty_samples: 10
+
+# Batch size for neural network
+# Rule-based system processes images sequentially (no batching)
+batch_size: 4
+
+# ------------------------------------------------------------------------------
+# Image Preprocessing
+# ------------------------------------------------------------------------------
+# These apply to both neural network and rule-based components
+
+target_resolution: [640, 640]
+normalization_mean: [0.485, 0.456, 0.406]
+normalization_std: [0.229, 0.224, 0.225]
+
+# ------------------------------------------------------------------------------
+# Performance Settings
+# ------------------------------------------------------------------------------
+
+device: "cuda"  # Neural network runs on GPU, rule-based on CPU
+mixed_precision: true
+
+# ------------------------------------------------------------------------------
+# Logging and Monitoring
+# ------------------------------------------------------------------------------
+
+tensorboard_dir: "./runs"
+log_level: "INFO"
+
+# ==============================================================================
+# How Hybrid Mode Works
+# ==============================================================================
+#
+# 1. Input Processing:
+#    - Both systems receive the same input images
+#    - Neural network processes on GPU in batches
+#    - Rule-based system processes on CPU sequentially
+#
+# 2. Parallel Execution:
+#    - Neural network: CNN → Optical Flow → Pose Estimator
+#    - Rule-based: ORB Features → Dense Optical Flow → Visual SLAM
+#    - Both produce misalignment probability in range [0, 1]
+#
+# 3. Prediction Combination:
+#    For each camera:
+#      combined_prob = (neural_weight × neural_prob) + (rule_based_weight × rule_based_prob)
+#    
+#    Example with weights (0.7, 0.3):
+#      If neural_prob = 0.8 and rule_based_prob = 0.4
+#      combined_prob = (0.7 × 0.8) + (0.3 × 0.4) = 0.56 + 0.12 = 0.68
+#
+# 4. Threshold Application:
+#    if combined_prob > confidence_threshold:
+#        classification = "misaligned"
+#    else:
+#        classification = "aligned"
+#
+# 5. Output:
+#    - Individual predictions from both systems (for analysis)
+#    - Combined ensemble prediction (for decision making)
+#    - Severity level based on combined probability
+#    - 6-DOF pose estimate (from neural network)
+#
+# ==============================================================================
+# Automatic Fallback Behavior
+# ==============================================================================
+#
+# If neural network inference fails (e.g., CUDA error, out of memory):
+# 1. System automatically switches to rule-based only
+# 2. Error is logged with details
+# 3. Processing continues without interruption
+# 4. System attempts to recover neural network after 60 seconds
+# 5. After 3 failed recovery attempts, stays in rule-based mode
+#
+# This provides reliability for safety-critical applications.
+#
+# ==============================================================================
+# Tuning Hybrid Weights
+# ==============================================================================
+#
+# To find optimal weights for your specific scenario:
+#
+# 1. Collect validation dataset with ground truth labels
+#
+# 2. Run inference with different weight combinations:
+#    - (1.0, 0.0): Neural only
+#    - (0.9, 0.1): Mostly neural
+#    - (0.8, 0.2): Favor neural
+#    - (0.7, 0.3): Default (recommended starting point)
+#    - (0.6, 0.4): Balanced towards neural
+#    - (0.5, 0.5): Equal weighting
+#    - (0.4, 0.6): Favor rule-based
+#    - (0.3, 0.7): Mostly rule-based
+#    - (0.0, 1.0): Rule-based only
+#
+# 3. For each combination, compute:
+#    - Detection accuracy
+#    - False positive rate
+#    - False negative rate
+#    - Precision and recall
+#
+# 4. Choose weights that optimize your priority metric:
+#    - Maximize accuracy: Choose weights with highest overall accuracy
+#    - Minimize false positives: Choose weights with lowest FP rate
+#    - Balance: Choose weights near optimal accuracy with acceptable FP rate
+#
+# 5. Consider operational factors:
+#    - Neural network tends to be more sensitive (higher detection rate)
+#    - Rule-based tends to be more conservative (fewer false positives)
+#    - Equal weighting (0.5/0.5) often provides good balance
+#
+# Example evaluation script:
+#   python scripts/evaluate_hybrid_weights.py \
+#     --config config/hybrid_mode.yaml \
+#     --validation-data path/to/validation \
+#     --weight-range 0.0:1.0:0.1
+#
+# ==============================================================================
