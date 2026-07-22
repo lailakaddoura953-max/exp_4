@@ -7,7 +7,17 @@ roboflow data/
 image_data_normal/
 image_data_normal_augmented_hazards/
 image_data_annotated/
+image_data_annotated_cnn/
+image_data_normal_hazard_sanity/
+image_data_normal_hazard_sanity_split/
 maps/
+
+# Third-party repo cloned per SETUP.md (has its own .git — never commit as a subtree)
+Grounded-SAM-2/
+
+# Training run outputs (weights already covered by *.pt below; this covers
+# the run directory's images/csv/etc.)
+runs/
 
 # Private/sensitive config
 config/ip_addresses_template.json

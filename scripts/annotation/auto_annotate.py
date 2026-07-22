@@ -26,11 +26,11 @@ See scripts/annotation/SETUP.md for installation instructions.
 # ─────────────────────────────────────────────────────────────────────────────
 # USER CONFIGURATION — edit these paths before running on the private machine
 # ─────────────────────────────────────────────────────────────────────────────
-GSAM2_REPO       = r"C:\path\to\Grounded-SAM-2"
-SAM2_CHECKPOINT  = r"C:\path\to\Grounded-SAM-2\checkpoints\sam2.1_hiera_large.pt"
+GSAM2_REPO       = r"C:\Users\Miles\Desktop\intern work\exp_4\Grounded-SAM-2"
+SAM2_CHECKPOINT  = r"C:\Users\Miles\Desktop\intern work\exp_4\Grounded-SAM-2\checkpoints\sam2.1_hiera_large.pt"
 SAM2_CONFIG      = "configs/sam2.1/sam2.1_hiera_l.yaml"
-GDINO_CHECKPOINT = r"C:\path\to\Grounded-SAM-2\gdino_checkpoints\groundingdino_swint_ogc.pth"
-GDINO_CONFIG     = r"C:\path\to\Grounded-SAM-2\grounding_dino\groundingdino\config\GroundingDINO_SwinT_OGC.py"
+GDINO_CHECKPOINT = r"C:\Users\Miles\Desktop\intern work\exp_4\Grounded-SAM-2\gdino_checkpoints\groundingdino_swint_ogc.pth"
+GDINO_CONFIG     = r"C:\Users\Miles\Desktop\intern work\exp_4\grounding_dino\groundingdino\config\GroundingDINO_SwinT_OGC.py"
 DEVICE           = "cuda"   # "cuda" or "cpu"
 # ─────────────────────────────────────────────────────────────────────────────
 

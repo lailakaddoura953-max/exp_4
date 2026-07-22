@@ -193,3 +193,93 @@ See each script's `--help` for all options.
 | Too many false detections | Raise `--confidence` threshold (try 0.45–0.55) |
 | Too few detections | Lower `--confidence` (try 0.25–0.30) and check text prompts |
 | `ModuleNotFoundError: groundingdino` | Run from inside the Grounded-SAM-2 repo or add it to PYTHONPATH |
+
+---
+
+## Fallback: CNN-Based Pipeline
+
+If the Grounded SAM 2 + Grounding DINO stack above turns out to be
+unstable, too slow, or not worth maintaining on this machine, use
+`scripts/annotation/cnn_auto_annotate.py` instead. It runs a conventional
+Ultralytics YOLO detector — no SAM 2, no Grounding DINO, no `.venv_annotation`,
+no CUDA compilation step. It produces bounding-box labels (encoded as
+4-corner rectangle polygons) rather than pixel-accurate masks, but the
+output directory layout and label format are unchanged, so
+`review_annotations.py` and the training scripts work with either backend.
+
+### Setup
+
+1. Install `ultralytics` in the project's **main** `.venv` (not
+   `.venv_annotation` — the CNN fallback runs entirely in the main
+   environment):
+   ```bash
+   pip install ultralytics
+   ```
+   Verify it's importable:
+   ```bash
+   python -c "import ultralytics; print(ultralytics.__version__)"
+   ```
+
+2. Produce a `YOLO_Checkpoint` trained on `roboflow data/data.yaml` if you
+   don't already have one:
+   ```bash
+   python scripts/train_yolo.py
+   ```
+   This writes `runs/train/hazard_yolo/weights/best.pt`. If you already
+   have a trained checkpoint (e.g. copied from another machine), just make
+   sure it ends up at that path, or pass `--checkpoint <path>` explicitly
+   when running the fallback.
+
+3. Verify the checkpoint loads and can run inference, without touching any
+   real data:
+   ```bash
+   python scripts/annotation/cnn_auto_annotate.py --verify \
+       --checkpoint runs/train/hazard_yolo/weights/best.pt
+   ```
+
+### Running the fallback
+
+```bash
+python scripts/annotation/run_auto_annotate.py --pipeline cnn \
+    --checkpoint runs/train/hazard_yolo/weights/best.pt \
+    --confidence 0.35 \
+    --review_threshold 0.55
+```
+
+(`cnn_auto_annotate.py` can also be run directly with the same flags; the
+`run_auto_annotate.py` entry point is just a single command that can switch
+between `--pipeline segmentation` and `--pipeline cnn`.)
+
+### `image_data_normal` availability
+
+The real normal-operations dataset (`image_data_normal`) lives on a
+separate, access-restricted device and is not present on every machine.
+Both `cnn_auto_annotate.py` and `run_auto_annotate.py` default `--input_dir`
+to `image_data_normal` if it exists, and automatically fall back to
+`roboflow data` otherwise — you'll see a `[warn]` line naming both paths
+when this happens. If you explicitly pass `--input_dir` yourself and that
+path doesn't exist, the fallback does **not** kick in — the script exits
+with an error instead, since an explicit path is assumed to be intentional.
+
+### Pre-training hazard sanity check
+
+Because `image_data_normal` is hazard-free by definition, there's nothing
+in it to validate detection against. Before trusting the CNN fallback at
+scale, run the sanity check, which injects synthetic hazard instances
+(open container, human, human without PPE) into copies of the normal
+images and measures detection recall against the known injected ground
+truth:
+
+```bash
+python scripts/pretrain_hazard_sanity_check.py
+```
+
+This also defaults `--normal_dir` to `image_data_normal` → `roboflow data`
+fallback behavior. Note: if it falls back to `roboflow data`, the result
+only confirms the pipeline's mechanics work (injection → training → recall
+evaluation) — `roboflow data` images already contain real hazards, so
+they aren't representative hazard-free background, and recall numbers from
+that run don't predict real-world performance. A PASS/FAIL verdict and
+per-class recall are printed and written to a summary JSON. See
+`.kiro/specs/cnn-fallback-annotation-pipeline/` for the full requirements
+and design behind this fallback.

@@ -430,9 +430,18 @@ def discover_normal_images(normal_dir: Path) -> list[Path]:
     Expected structure: normal_dir / <location> / normal_operations / <day|night> / Screenshot*.png
     Any image file anywhere under the tree is accepted.
     """
+    # Deduplicated by resolved path: on case-insensitive filesystems
+    # (Windows, default macOS) "*.png" already matches "IMG.PNG", so
+    # iterating both patterns would otherwise discover -- and inject
+    # hazards into -- every image twice.
+    seen: set[Path] = set()
     images = []
     for ext in ("*.png", "*.PNG", "*.jpg", "*.JPG", "*.jpeg"):
-        images.extend(normal_dir.rglob(ext))
+        for img_path in normal_dir.rglob(ext):
+            resolved = img_path.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                images.append(img_path)
     return sorted(images)
 
 
