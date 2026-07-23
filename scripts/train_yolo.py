@@ -1,4 +1,4 @@
-"""Step 5 - Train YOLOv12 on the Roboflow dataset.
+"""Step 5 - Train YOLOv12 on the Roboflow dataset (or image_data_with_synth/).
 
 Usage:
     python scripts/train_yolo.py                      # GPU, 100 epochs
@@ -6,6 +6,9 @@ Usage:
     python scripts/train_yolo.py --epochs 50          # fewer epochs
     python scripts/train_yolo.py --resume             # resume from last.pt
     python scripts/train_yolo.py --batch 8            # smaller batch (low VRAM)
+    python scripts/train_yolo.py --data "image_data_with_synth/data.yaml"
+                                                        # train against image_data_with_synth/
+                                                        # instead of roboflow data/ (see --data below)
 
 The best checkpoint is saved to:
     runs/train/hazard_yolo/weights/best.pt
@@ -20,6 +23,35 @@ from pathlib import Path
 
 sys.path.insert(0, 'src')
 
+# requirements.md Requirement 15.1, 15.6: --data can point at either
+# roboflow data/data.yaml (default, unchanged) or a data.yaml for the
+# image_data_with_synth/ tree. This script does not merge/consolidate the
+# two datasets — pick one data.yaml per training run.
+#
+# image_data_with_synth/ is NOT present in this workspace checkout (it
+# lives on a separate device per the project's documented setup). If you
+# pass --data pointing into image_data_with_synth/, check on your device
+# for this folder and the exact data.yaml path needed — this script does
+# not assume, generate, or validate that path beyond the basic existence
+# check below.
+IMAGE_DATA_WITH_SYNTH_MARKER = "image_data_with_synth"
+
+
+def _describe_dataset_source(data_yaml_path: str) -> str:
+    """
+    Return a short, human-readable label for which dataset source a
+    --data path points at, per Requirement 15.6 ("clearly indicate...
+    whether a given --data/--source path points at corrected or raw
+    image_data_with_synth/ labels").
+    """
+    normalized = data_yaml_path.replace("\\", "/").lower()
+    if IMAGE_DATA_WITH_SYNTH_MARKER in normalized:
+        if "reclassified" in normalized or "corrected" in normalized:
+            return "image_data_with_synth/ (corrected)"
+        return "image_data_with_synth/ (raw)"
+    return "roboflow data/"
+
+
 def main():
     from hazard_detection.data_pipeline.training_pipeline import (
         TrainingConfig, YOLOTrainingPipeline
@@ -33,13 +65,28 @@ def main():
     parser.add_argument("--device",   type=str,   default="cuda",
                         help="'cuda' or 'cpu'")
     parser.add_argument("--data",     type=str,   default="roboflow data/data.yaml",
-                        help="Path to data.yaml")
+                        help="Path to data.yaml. Defaults to 'roboflow data/data.yaml'. "
+                             "To train against image_data_with_synth/ instead, pass its "
+                             "data.yaml path directly, e.g. "
+                             "'image_data_with_synth/data.yaml' -- check on your device "
+                             "for this folder and the exact path needed, since "
+                             "image_data_with_synth/ is not present in every checkout.")
     parser.add_argument("--name",     type=str,   default="hazard_yolo",
                         help="Run name (output goes to runs/train/<name>/)")
     parser.add_argument("--resume",   action="store_true",
                         help="Resume from runs/train/<name>/weights/last.pt")
     parser.add_argument("--checkpoint-interval", type=int, default=5)
     args = parser.parse_args()
+
+    dataset_source = _describe_dataset_source(args.data)
+    print(f"Dataset source: {dataset_source}  (--data {args.data})")
+    if not Path(args.data).exists():
+        print(
+            f"  [warn] '{args.data}' was not found on this machine. If this is "
+            f"meant to point into image_data_with_synth/, check on your device "
+            f"for this folder and the path needed -- it may live on a separate "
+            f"device per the project's documented setup."
+        )
 
     resume_path = None
     if args.resume:

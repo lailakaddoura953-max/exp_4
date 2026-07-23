@@ -9,21 +9,22 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Prerequisites & Dependencies](#prerequisites--dependencies)
-3. [Project Layout](#project-layout)
-4. [Step 1 — Verify Installation](#step-1--verify-installation)
-5. [Step 2 — Understand the Roboflow Dataset](#step-2--understand-the-roboflow-dataset)
-6. [Step 3 — Generate Synthetic Training Data](#step-3--generate-synthetic-training-data)
-7. [Step 4 — Prepare Supplemental Data (Optional)](#step-4--prepare-supplemental-data-optional)
-8. [Step 5 — Train the YOLOv12 Model](#step-5--train-the-yolov12-model)
-9. [Step 6 — Evaluate the Trained Model](#step-6--evaluate-the-trained-model)
-10. [Step 7 — Configure the System](#step-7--configure-the-system)
-11. [Step 8 — Run Hazard Detection (Live or Fallback)](#step-8--run-hazard-detection-live-or-fallback)
-12. [Model Checkpoint Management](#model-checkpoint-management)
-13. [Component Interaction Map](#component-interaction-map)
-14. [Understanding the Output](#understanding-the-output)
-15. [Troubleshooting](#troubleshooting)
-16. [Road Map: One-Click Desktop App](#road-map-one-click-desktop-app)
+2. [Location-Aware Hazard Rules (New)](#location-aware-hazard-rules-new)
+3. [Prerequisites & Dependencies](#prerequisites--dependencies)
+4. [Project Layout](#project-layout)
+5. [Step 1 — Verify Installation](#step-1--verify-installation)
+6. [Step 2 — Understand the Dataset(s)](#step-2--understand-the-datasets)
+7. [Step 3 — Generate Synthetic Training Data](#step-3--generate-synthetic-training-data)
+8. [Step 4 — Prepare Supplemental Data (Optional)](#step-4--prepare-supplemental-data-optional)
+9. [Step 5 — Train the YOLOv12 Model](#step-5--train-the-yolov12-model)
+10. [Step 6 — Evaluate the Trained Model](#step-6--evaluate-the-trained-model)
+11. [Step 7 — Configure the System](#step-7--configure-the-system)
+12. [Step 8 — Run Hazard Detection (Live or Fallback)](#step-8--run-hazard-detection-live-or-fallback)
+13. [Model Checkpoint Management](#model-checkpoint-management)
+14. [Component Interaction Map](#component-interaction-map)
+15. [Understanding the Output](#understanding-the-output)
+16. [Troubleshooting](#troubleshooting)
+17. [Road Map: One-Click Desktop App](#road-map-one-click-desktop-app)
 
 ---
 
@@ -40,6 +41,11 @@ detects three categories of hazards using a YOLOv12 object detection model:
 
 Classification is **binary**: every detection is either a **hazard** (alert
 dispatched) or **not a hazard** (logged only). There are no severity tiers.
+
+**New in this revision:** raw YOLO detections are now filtered through a
+**Camera-Location-Aware Hazard Rules** layer before hazard/no-hazard
+classification. See [Location-Aware Hazard Rules](#location-aware-hazard-rules-new)
+below.
 
 ### What this guide walks you through
 
@@ -58,6 +64,153 @@ generate_synthetic_data.py   ←  Create extra training images
          ▼
   src/hazard_detection/main.py ← Run live detection (or fallback simulation)
 ```
+
+---
+
+## Location-Aware Hazard Rules (New)
+
+Plain object detection isn't enough on its own — a `Human` detected at the
+Berth (the quay) is normal; the same detection at Block (inside the
+automated fenceline) is a hazard. The rule engine adds that missing
+context: it reads a camera's **name** (e.g. `A8 - SE PTZ - Block 1F`),
+resolves which of 16 terminal zone types it covers, and applies that
+zone's specific safety rules before deciding hazard vs. not-hazard.
+
+### How it fits into the pipeline
+
+```
+YOLO_Detector output
+        │
+        ▼
+CameraLocationResolver          ← parses "A8 - SE PTZ - Block 1F" → "Block"
+        │
+        ▼
+LocationRuleLoader.get_rule_set("Block")
+        │             ▲
+        │             └── config/location_rules.yaml (optional overrides)
+        ▼
+HazardRuleOrchestrator.evaluate(...)
+   ├─ check_human()       — presence/PPE rules for this zone
+   ├─ check_container()   — which container checks are enabled/suppressed here
+   ├─ check_vehicle()     — proximity checks, if enabled for this zone
+   ├─ check_tel_spot()    — TEL/TELs trucker-spot boundary
+   └─ check_tel_occupancy() — TEL/TELs occupancy limit
+        │
+        ▼
+AuditLogger  → logs/rule_audit.jsonl  (every decision, hazard or not)
+        │
+        ▼
+QualifiedHazardEvent (HazardEvent + resolved zone + matched rule)
+```
+
+This is implemented in `src/hazard_detection/rule_engine/`:
+
+| File | What it answers |
+|---|---|
+| `camera_location_resolver.py` | "What zone type is this live camera?" |
+| `rules.py` | "What are the rules for this zone type?" |
+| `check_rules_from_object_label.py` | "Given this rule set and this detection, is it a hazard?" |
+| `orchestrator.py` | "For this camera's full detection set, what actually happened?" |
+| `audit_logger.py` | Writes the JSON-lines decision trail |
+| `interfaces.py` | Structural interfaces so the rule engine doesn't depend on unrelated broken imports elsewhere in the codebase |
+| `class_taxonomy.py` | The single shared 17-class / 12-class (reduced) class lists — see [Step 2](#step-2--understand-the-datasets) |
+
+### The 16 zone types and their rules, at a glance
+
+| Zone type | Humans | PPE | Notes |
+|---|---|---|---|
+| `Berth` | permitted | vest + helmet | Hard-hat zone (the quay) |
+| `Block` | **prohibited** | — | Inside the automated fenceline |
+| `TELs` / `TEL` | permitted | vest | 1-person occupancy limit; trucker-spot boundary check |
+| `Wall St` | **prohibited** | — | |
+| `Reefer Rack` | permitted | vest | Mechanics work here |
+| `Rail` | **prohibited** | — | Maintenance exception pending HSSE confirmation — not implemented |
+| `Rail Storage` | **prohibited** | — | Open container doors NOT flagged here (normal/expected) |
+| `Pedestal` | **prohibited** | — | |
+| `Flipline` | permitted | vest + helmet | Open container doors NOT flagged here |
+| `Plug Reefer` | **prohibited** | vest + helmet | Helmet requirement defaulted-safe pending confirmation |
+| `Airlocks` | conditional (gate-dependent) | vest + shoes | Presence itself not flagged; PPE still checked |
+| `CEG` | conditional (gate-dependent) | vest + shoes | Presence itself not flagged; PPE still checked |
+| `AssetManagement` | permitted | vest + helmet | PPE defaulted-safe pending confirmation |
+| `Exit Fuel` | permitted | vest | Still flagged by HSSE as pending confirmation |
+| `VACIS` | unknown (no human rule yet) | — | Open container doors NOT flagged here |
+| *Unknown* (unrecognized name) | **prohibited** | — | Fail-safe: strictest rules applied |
+
+Anything marked "pending confirmation" is deliberately conservative until
+HSSE (Health, Safety, Security & Environment) confirms it — it is **not** a
+bug, it's a documented placeholder. See the inline comments in `rules.py`
+for the full rationale behind every field.
+
+### Editing the rules without touching code
+
+`config/location_rules.yaml` lets you override individual rule fields, add
+`camera_name_overrides` for cameras with non-standard names, and map
+`camera_id_to_name` (your short `cam_01`-style IDs → full Ocularis names)
+— all without redeploying. If the file is missing or a field is invalid,
+the system falls back to the built-in defaults and logs a warning, it
+never crashes.
+
+```yaml
+# config/location_rules.yaml
+location_type_overrides:
+  Plug Reefer:
+    ppe_requirement:
+      helmet_required: false   # flip this once HSSE confirms
+
+camera_name_overrides:
+  "ADM Parking": "AssetManagement"
+
+camera_id_to_name:
+  cam_01: "A8 - SE PTZ - Block 1F"
+```
+
+### Auditing rule decisions
+
+Every detection the rule engine processes — hazard or not — is logged to
+`logs/rule_audit.jsonl` (configurable), one JSON object per line:
+
+```json
+{"timestamp": "...", "camera_name": "A8 - SE PTZ - Block 1F", "location_type": "Block",
+ "detection_class": "Human", "confidence": 0.9, "bbox": {...},
+ "rule_name": "human_presence_prohibited", "outcome": "hazard_emitted", "frame_index": 1}
+```
+
+`outcome` is one of `hazard_emitted`, `no_hazard`, `check_disabled`,
+`suppressed` (an intentional, documented suppression — e.g. open doors at
+Rail Storage), or `policy_unknown`. This lets HSSE verify their stated
+rules are actually being applied as described, and lets you reconstruct
+why any detection was or wasn't flagged after an incident.
+
+### Turning the rule engine on
+
+The rule engine is an **opt-in addition** to `DetectionPipeline` — existing
+deployments are unaffected unless you wire it in explicitly:
+
+```python
+from hazard_detection.rule_engine.camera_location_resolver import CameraLocationResolver
+from hazard_detection.rule_engine.rules import LocationRuleLoader
+from hazard_detection.rule_engine.audit_logger import AuditLogger
+from hazard_detection.rule_engine.orchestrator import HazardRuleOrchestrator
+
+orchestrator = HazardRuleOrchestrator(
+    resolver=CameraLocationResolver(),
+    rule_loader=LocationRuleLoader(config_path="config/location_rules.yaml"),
+    container_analyzer=container_analyzer,   # your existing ContainerAnalyzer
+    audit_logger=AuditLogger(audit_log_path="logs/rule_audit.jsonl"),
+)
+
+pipeline = DetectionPipeline(
+    ...,  # same args as before
+    hazard_rule_orchestrator=orchestrator,   # NEW — pass this to enable rules
+    get_camera_name=config_manager.get_camera_name,   # NEW — cam_01 -> full name
+)
+```
+
+If `hazard_rule_orchestrator` is omitted (the default), `DetectionPipeline`
+behaves exactly as it did before this feature existed.
+
+> Full technical detail: `.kiro/specs/camera-location-hazard-rules/design.md`
+> and `requirements.md`.
 
 ---
 
@@ -108,6 +261,7 @@ Key packages installed by `requirements.txt`:
 exp_3/
 ├── config/
 │   ├── hazard_detection.yaml      ← Main system config (edit this)
+│   ├── location_rules.yaml       ← Location-aware hazard rule overrides (edit this)
 │   └── zones/
 │       ├── cam_01_zones.yaml      ← Per-camera zone polygons
 │       └── cam_02_zones.yaml
@@ -138,6 +292,15 @@ exp_3/
 │   ├── detection_pipeline.py      ← Orchestrates all stages per camera
 │   ├── diagnostics.py             ← Structured logging, timers, state dumps
 │   ├── evaluation.py              ← ModelEvaluator with visual chart output
+│   ├── rule_engine/                       ← Location-aware hazard rules (see new section above)
+│   │   ├── camera_location_resolver.py    ← Camera name → zone type
+│   │   ├── training_folder_location_resolver.py ← image_data_with_synth/ folder → zone type
+│   │   ├── rules.py                       ← LocationRuleSet data + YAML loader
+│   │   ├── check_rules_from_object_label.py ← Per-detection rule checks
+│   │   ├── orchestrator.py                ← Ties it together per camera
+│   │   ├── audit_logger.py                ← JSON-lines rule decision log
+│   │   ├── interfaces.py                  ← Structural interfaces (decoupling)
+│   │   └── class_taxonomy.py              ← Shared 17-class / Reduced_Class_Set (12) lists
 │   └── data_pipeline/
 │       ├── supplemental_loader.py ← Load external datasets → YOLO format
 │       ├── synthetic_generator.py ← Generate synthetic container scenes
@@ -190,19 +353,25 @@ opencv:            OK
 
 ---
 
-## Step 2 — Understand the Roboflow Dataset
+## Step 2 — Understand the Dataset(s)
+
+There are now two possible training data sources, and the class list has
+a reduced variant. Both are centralized so nothing drifts out of sync —
+see `src/hazard_detection/rule_engine/class_taxonomy.py`.
+
+### The full 17-class taxonomy (`roboflow data/`)
 
 The base dataset lives in `roboflow data/` and contains ~100 annotated yard
 images with these 17 detection classes:
 
 ```
- 0  Boat - With Cargo
+ 0  Boat - With Cargo            ← dropped in the reduced set
  1  Container - Misaligned       ← hazard
  2  Container - Open             ← hazard
  3  Container - Picked
- 4  Container - Reefer
- 5  Container - Water Drop
- 6  Container - Separate
+ 4  Container - Reefer           ← dropped in the reduced set
+ 5  Container - Water Drop       ← dropped in the reduced set
+ 6  Container - Separate         ← dropped in the reduced set
  7  Container - Stacked
  8  Crane
  9  Human
@@ -210,7 +379,7 @@ images with these 17 detection classes:
 11  Truck - No Container
 12  Truck - With Container
 13  Vehicle
-14  Yard - Dropoff zone          ← zone annotation
+14  Yard - Dropoff zone          ← zone annotation, dropped in the reduced set
 15  Yard - No People             ← zone annotation
 16  Yard - Operation Zone        ← zone annotation
 ```
@@ -221,21 +390,88 @@ class_id  x_center  y_center  width  height
 ```
 All coordinates are normalized to [0.0, 1.0] relative to image dimensions.
 
-### Inspect the dataset split
+### The Reduced_Class_Set (12 classes)
 
-```cmd
-python scripts/check_dataset.py
+HSSE's confirmed rules never reference 5 of the 17 classes above. The
+Reduced_Class_Set drops them and is the class list Phase B's retraining
+targets — see `REDUCED_CLASS_SET` in
+`src/hazard_detection/rule_engine/class_taxonomy.py` for the authoritative
+list and the 17→12 index remap (`FULL_TO_REDUCED_INDEX`).
+
+> **This requires training a NEW model from scratch**, not fine-tuning an
+> existing 17-class checkpoint — dropping classes changes the model's
+> output layer size and index-to-name mapping, which are fixed at training
+> time. A 17-class checkpoint and a 12-class checkpoint are never
+> interchangeable, regardless of how downstream code references class
+> names by string.
+
+### The `image_data_with_synth/` dataset (optional second source)
+
+If you have access to `image_data_with_synth/` — synthetic hazard-injected
+images layered onto real "normal operations" footage — most of the
+training/evaluation/inference scripts below can target it directly via
+`--data`/`--source`, as an alternative to `roboflow data/`, with **no merge
+or consolidation step**. Its directory shape is different from the flat
+Roboflow train/valid/test split:
+
+```
+image_data_with_synth/
+  augmented_hazards/<location>/<day|night>/*.PNG (+ matching label files)
+  normal_operations/
+    augmented_normal/<location>/<day|night>/*.PNG (+ matching label files)
+    auto_accepted/<location>/<day|night>/*.PNG (+ matching label files)
 ```
 
-**Expected output:**
+`<location>` folder names (e.g. `berth_401`) are not raw Ocularis camera
+names — they're mapped to a rule-engine zone type by
+`TrainingFolderLocationResolver` in
+`src/hazard_detection/rule_engine/training_folder_location_resolver.py`.
+
+> `image_data_with_synth/` lives on a separate device and may not be
+> present in every checkout. If a script reports it "NOT FOUND," check on
+> your device for this folder and the exact path needed — the scripts
+> below don't assume, generate, or search for it on your behalf.
+
+### Inspect a dataset split
+
+`check_dataset.py` now has two distinct reporting modes:
+
+```cmd
+REM Roboflow-style flat train/valid/test counts (default, unchanged)
+python scripts/check_dataset.py
+
+REM image_data_with_synth/-style per-location, per-day/night, hazard-vs-normal counts
+python scripts/check_dataset.py --source image_data_with_synth
+```
+
+**Expected output (Roboflow mode):**
 ```
 train:   85 images,    85 labels
 valid:   12 images,    12 labels
 test:    12 images,    12 labels
 ```
 
-> The dataset is small. That is why we generate synthetic data in the next
-> step — to give the model more variety before training.
+**Expected output (image_data_with_synth/ mode):**
+```
+[augmented_hazards]
+  berth_401                      day   :   42 images,    42 labels
+  berth_401                      night :   18 images,    18 labels
+  ...
+  TOTAL                                :  210 images,   210 labels
+
+[normal_operations/augmented_normal]
+  ...
+
+[normal_operations/auto_accepted]
+  ...
+
+[grand total across all buckets]  ... images,  ... labels
+  hazard examples come from 'augmented_hazards' only;
+  'normal_operations/*' buckets are non-hazard by construction.
+```
+
+> The Roboflow dataset is small. That is why we generate synthetic data in
+> the next step — to give the model more variety before training.
 
 ---
 
@@ -421,6 +657,25 @@ python scripts/train_yolo.py --resume
 python scripts/finetune_yolo.py --checkpoint runs/train/hazard_yolo/weights/best.pt
 ```
 
+### 5e — Train against `image_data_with_synth/` instead of `roboflow data/`
+
+```cmd
+python scripts/train_yolo.py --data "image_data_with_synth/data.yaml"
+```
+
+`--data` accepts a path to any `data.yaml` — point it at `roboflow
+data/data.yaml` (the default) or a `data.yaml` for `image_data_with_synth/`.
+There is no merge step; pick one dataset per training run. The script
+prints which dataset source it resolved on startup:
+
+```
+Dataset source: image_data_with_synth/ (raw)  (--data image_data_with_synth/data.yaml)
+```
+
+If the path doesn't exist on this machine, you'll see a warning telling
+you to check on your device for the folder and exact path — the script
+doesn't search for it on your behalf.
+
 All scripts accept `--help` to see available options:
 
 ```cmd
@@ -463,6 +718,17 @@ python scripts/evaluate_yolo.py --checkpoint checkpoints/yolov12_best.pt
 python scripts/evaluate_yolo.py --conf 0.3 --device cpu
 python scripts/evaluate_yolo.py --help
 ```
+
+**To evaluate a checkpoint against `image_data_with_synth/` specifically**
+(in isolation from `roboflow data/`, so you can compare how a model
+performs on each dataset separately):
+
+```cmd
+python scripts/evaluate_yolo.py --checkpoint runs/train/hazard_yolo_synth/weights/best.pt --data "image_data_with_synth/data.yaml"
+```
+
+Same dataset-source printout and missing-path warning behavior as
+`train_yolo.py` above.
 
 **Charts saved to `evaluation_results/`:**
 
@@ -620,7 +886,7 @@ WARNING  StubFrameSampler: generated 6 blank frames for camera 'cam_01'
 
 ---
 
-### 8c — Run against the Roboflow test images (simulation)
+### 8c — Run against test images (simulation)
 
 ```cmd
 python scripts/run_on_test_images.py
@@ -634,7 +900,15 @@ python scripts/run_on_test_images.py --conf 0.3 --device cpu
 python scripts/run_on_test_images.py --help
 ```
 
-Annotated images are saved to `runs/detect/test_run/`.
+**To run inference against `image_data_with_synth/` instead of Roboflow's
+test split** — any subfolder, or the full tree:
+
+```cmd
+python scripts/run_on_test_images.py --source "image_data_with_synth/augmented_hazards"
+```
+
+No labels are required for plain inference either way. Annotated images
+are saved to `runs/detect/test_run/`.
 
 ---
 
@@ -1004,8 +1278,11 @@ pause
 REM Verify everything is installed
 python scripts/check_install.py
 
-REM Check dataset split sizes
+REM Check dataset split sizes (roboflow data/)
 python scripts/check_dataset.py
+
+REM Check image_data_with_synth/ instead (per-location, per-day/night counts)
+python scripts/check_dataset.py --source image_data_with_synth
 
 REM Augment train and test splits (3 copies per image)
 python scripts/augment_dataset.py
@@ -1020,14 +1297,23 @@ python scripts/train_yolo.py --device cpu --batch 8 --epochs 50
 REM Resume training
 python scripts/train_yolo.py --resume
 
+REM Train against image_data_with_synth/ instead of roboflow data/
+python scripts/train_yolo.py --data "image_data_with_synth/data.yaml"
+
 REM Fine-tune on new data
 python scripts/finetune_yolo.py
 
 REM Evaluate with visual charts
 python scripts/evaluate_yolo.py
 
+REM Evaluate against image_data_with_synth/ specifically
+python scripts/evaluate_yolo.py --data "image_data_with_synth/data.yaml"
+
 REM Run on Roboflow test images
 python scripts/run_on_test_images.py
+
+REM Run inference against image_data_with_synth/ instead
+python scripts/run_on_test_images.py --source "image_data_with_synth/augmented_hazards"
 
 REM Run live detection pipeline
 python -m hazard_detection.main --config config/hazard_detection.yaml
@@ -1043,3 +1329,6 @@ python -m pytest tests/unit/ -v --tb=short
 - `docs/TRAINING_GUIDE.md` — deep-dive training and hyperparameter tuning
 - `.kiro/specs/hazard-detection-system/requirements.md` — system requirements
 - `.kiro/specs/hazard-detection-system/design.md` — architecture and design decisions
+- `.kiro/specs/camera-location-hazard-rules/requirements.md` — location-aware hazard rules requirements
+- `.kiro/specs/camera-location-hazard-rules/design.md` — rule engine architecture and design decisions
+- `.kiro/specs/camera-location-hazard-rules/tasks.md` — implementation plan and status

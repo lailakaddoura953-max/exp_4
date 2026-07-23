@@ -46,25 +46,26 @@ import cv2
 import numpy as np
 
 # ─────────────────────────── Class IDs (from data.yaml) ───────────────────────
-CLASS_NAMES = [
-    "Boat - With Cargo",        # 0
-    "Container - Misaligned",   # 1
-    "Container - Open",         # 2
-    "Container - Picked",       # 3
-    "Container - Reefer",       # 4
-    "Container - Water Drop",   # 5
-    "Container -Separate",      # 6
-    "Container -Stacked",       # 7
-    "Crane",                    # 8
-    "Human",                    # 9
-    "Human - No Safety Clothes",# 10
-    "Truck - No Container",     # 11
-    "Truck - With Container",   # 12
-    "Vehicle",                  # 13
-    "Yard - Dropoff zone",      # 14
-    "Yard - No People",         # 15
-    "Yard - Operation Zone",    # 16
-]
+# Sourced from src/hazard_detection/rule_engine/class_taxonomy.py — the single
+# shared definition of the class list, per requirements.md Requirement 12.5.
+# This is deliberately imported rather than re-typed here, so this script's
+# class indices can never drift out of sync with the shared taxonomy (or with
+# scripts/pretrain_hazard_sanity_check.py, which imports the same module).
+_SRC_DIR = str(Path(__file__).resolve().parent.parent / "src")
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
+from hazard_detection.rule_engine.class_taxonomy import FULL_CLASS_NAMES as CLASS_NAMES  # noqa: E402
+
+#some classes are likely going to be removed or added as the project evolves
+#and the needs of supervisors/stakeholders changes
+#
+# NOTE: this script currently injects against the FULL 17-class taxonomy
+# (CLASS_NAMES = FULL_CLASS_NAMES), since it extracts hazard assets from
+# roboflow data/, which is still labeled with the original 17 classes
+# (requirements.md Requirement 12.6 — existing datasets are not required to
+# drop classes in place). HAZARD_CLASSES below references indices 2, 9, 10,
+# which are unaffected by the Reduced_Class_Set's drops and keep the same
+# index in both FULL_CLASS_NAMES and REDUCED_CLASS_SET's source positions.
 
 # The three hazard classes we inject
 HAZARD_CLASSES = {

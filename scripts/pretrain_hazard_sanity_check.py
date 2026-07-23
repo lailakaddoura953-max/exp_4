@@ -75,6 +75,13 @@ import generate_hazard_augmentations as hazard_gen  # noqa: E402
 # hazard_detection package (training pipeline)
 sys.path.insert(0, "src")
 
+# Shared class taxonomy (requirements.md Requirement 12.5) — imported
+# directly here (not just transitively via hazard_gen.CLASS_NAMES) so this
+# script's own class-list reference is explicit and can't silently drift
+# from src/hazard_detection/rule_engine/class_taxonomy.py, the single
+# source of truth for the class list.
+from hazard_detection.rule_engine.class_taxonomy import FULL_CLASS_NAMES  # noqa: E402
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Input dataset resolution
@@ -595,7 +602,7 @@ def main() -> None:
         split_dir=args.split_dir,
         val_fraction=args.val_fraction,
         seed=args.seed,
-        class_names=hazard_gen.CLASS_NAMES,
+        class_names=FULL_CLASS_NAMES,
     )
 
     # ── Step 3: train or reuse a checkpoint ──────────────────────────────────

@@ -28,21 +28,36 @@ Requirements covered:
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from hazard_detection.alert_dispatcher import AlertDispatcher
 from hazard_detection.camera_switcher import CameraSwitcher
-from hazard_detection.container_analyzer import ContainerAnalyzer
 from hazard_detection.diagnostics import (
     DiagnosticDumper,
     PerformanceTimer,
     PipelineTracer,
     get_logger,
 )
-from hazard_detection.frame_sampler import FrameSampler
 from hazard_detection.human_detector import HumanDetector
 from hazard_detection.models import HazardEvent, PipelineConfig
+from hazard_detection.rule_engine.interfaces import (
+    ContainerAnalyzerProtocol,
+    FrameSamplerProtocol,
+)
+from hazard_detection.rule_engine.orchestrator import HazardRuleOrchestrator
 from hazard_detection.yolo_detector import YOLODetector
+
+# NOTE: ContainerAnalyzer and FrameSampler are intentionally NOT imported
+# directly here (only their structural interfaces are). ContainerAnalyzer
+# transitively imports cv.flow_analyzer -> src.models.core.FlowResult, and
+# FrameSampler transitively imports acquisition.frame_acquisition ->
+# src.models.core.SynchronizedFrameBatch. Neither src.models.core module
+# exists anywhere in this codebase -- a pre-existing, unrelated break in
+# both dependency chains. Depending on the Protocols means DetectionPipeline
+# can still be imported, constructed, and unit tested (with mocks/stubs in
+# place of either component) independently of that break. Callers with a
+# working import chain for the real classes can still pass them in; both
+# satisfy their respective Protocol.
 
 logger = get_logger("detection_pipeline")
 
@@ -57,29 +72,48 @@ class DetectionPipeline:
 
     Args:
         config: PipelineConfig with camera_sequence and per_camera_timeout_seconds.
-        frame_sampler: FrameSampler instance for frame acquisition.
+        frame_sampler: FrameSampler instance (or any object satisfying
+            FrameSamplerProtocol) for frame acquisition.
         yolo_detector: YOLODetector instance for object detection.
         human_detector: HumanDetector instance for zone/PPE violation detection.
-        container_analyzer: ContainerAnalyzer instance for container hazard detection.
+        container_analyzer: ContainerAnalyzer instance (or any object
+            satisfying ContainerAnalyzerProtocol) for container hazard detection.
         alert_dispatcher: AlertDispatcher instance for alert routing.
         camera_switcher: CameraSwitcher instance for camera transitions.
         shutdown_event: threading.Event used to signal graceful shutdown.
         tracer: Optional PipelineTracer for execution tracing.
         dumper: Optional DiagnosticDumper for intermediate state snapshots.
+        hazard_rule_orchestrator: Optional HazardRuleOrchestrator from the
+            camera-location-hazard-rules spec. When provided, it REPLACES
+            the direct human_detector.analyze() / container_analyzer.analyze()
+            calls for stages 4-5 with a single orchestrator.evaluate() call
+            that applies location-aware rules (see rule_engine/orchestrator.py).
+            When None (the default), the pipeline behaves exactly as before —
+            human_detector and container_analyzer are invoked directly and
+            independently, preserving existing exception-isolation behavior
+            between the two stages. This is an additive, opt-in integration:
+            deployments that haven't configured location rules are unaffected.
+        get_camera_name: Optional callable mapping camera_id -> the full
+            Ocularis Camera_Name string, used only when hazard_rule_orchestrator
+            is provided (the orchestrator resolves location type from the
+            camera name, not the short camera_id). Defaults to the identity
+            function (camera_id used as-is) if not provided.
     """
 
     def __init__(
         self,
         config: PipelineConfig,
-        frame_sampler: FrameSampler,
+        frame_sampler: FrameSamplerProtocol,
         yolo_detector: YOLODetector,
         human_detector: HumanDetector,
-        container_analyzer: ContainerAnalyzer,
+        container_analyzer: ContainerAnalyzerProtocol,
         alert_dispatcher: AlertDispatcher,
         camera_switcher: CameraSwitcher,
         shutdown_event: Optional[threading.Event] = None,
         tracer: Optional[PipelineTracer] = None,
         dumper: Optional[DiagnosticDumper] = None,
+        hazard_rule_orchestrator: Optional[HazardRuleOrchestrator] = None,
+        get_camera_name: Optional[Callable[[str], str]] = None,
     ):
         self._config = config
         self._frame_sampler = frame_sampler
@@ -91,6 +125,8 @@ class DetectionPipeline:
         self._shutdown_event = shutdown_event or threading.Event()
         self._tracer = tracer
         self._dumper = dumper
+        self._hazard_rule_orchestrator = hazard_rule_orchestrator
+        self._get_camera_name = get_camera_name or (lambda camera_id: camera_id)
 
         # Pipeline statistics
         self._cycle_count: int = 0
@@ -365,99 +401,154 @@ class DetectionPipeline:
             self._frame_sampler.release()
             return all_events
 
-        # --- Stage 4: Human Detection Analysis ---
-        try:
-            if self._tracer:
-                self._tracer.enter_module(
-                    "human_detector",
-                    input_info={
-                        "frames_to_analyze": len(detections_per_frame),
-                    },
-                )
+        if self._hazard_rule_orchestrator is not None:
+            # --- Stages 4-5 (combined): Location-Aware Rule Evaluation ---
+            # Replaces the direct human_detector.analyze() / container_analyzer.analyze()
+            # calls below with a single orchestrator.evaluate() call, per the
+            # camera-location-hazard-rules spec (Requirement 9.1). Opt-in only —
+            # see the hazard_rule_orchestrator constructor docstring.
+            try:
+                camera_name = self._get_camera_name(camera_id)
 
-            with PerformanceTimer("human_analysis", camera_id=camera_id) as timer:
-                human_events = self._human_detector.analyze(
-                    detections_per_frame, camera_id
-                )
+                if self._tracer:
+                    self._tracer.enter_module(
+                        "hazard_rule_orchestrator",
+                        input_info={
+                            "frames_to_analyze": len(detections_per_frame),
+                            "camera_name": camera_name,
+                        },
+                    )
 
-            stage_timings["human_analysis"] = timer.elapsed_ms
+                with PerformanceTimer("hazard_rule_evaluation", camera_id=camera_id) as timer:
+                    qualified_events = self._hazard_rule_orchestrator.evaluate(
+                        camera_name, detections_per_frame, frame_sequence
+                    )
 
-            if self._tracer:
-                self._tracer.exit_module(
-                    "human_detector",
-                    output_info={
-                        "events_produced": len(human_events),
-                        "hazards": sum(1 for e in human_events if e.is_hazard),
-                    },
-                )
+                stage_timings["hazard_rule_evaluation"] = timer.elapsed_ms
+                rule_events = [qe.event for qe in qualified_events]
 
-            all_events.extend(human_events)
+                if self._tracer:
+                    self._tracer.exit_module(
+                        "hazard_rule_orchestrator",
+                        output_info={
+                            "events_produced": len(rule_events),
+                            "hazards": sum(1 for e in rule_events if e.is_hazard),
+                        },
+                    )
 
-            # Dump state after human analysis
-            if self._dumper:
-                self._dumper.dump(
-                    stage="post_human_analysis",
-                    state={
-                        "human_events_count": len(human_events),
-                        "human_hazards": sum(1 for e in human_events if e.is_hazard),
-                    },
-                    camera_id=camera_id,
-                )
+                all_events.extend(rule_events)
 
-        except Exception as exc:
-            self._handle_stage_exception("human_detector", camera_id, exc)
-            if self._tracer:
-                self._tracer.exit_module(
-                    "human_detector", output_info={"error": str(exc)}
-                )
+                if self._dumper:
+                    self._dumper.dump(
+                        stage="post_hazard_rule_evaluation",
+                        state={
+                            "rule_events_count": len(rule_events),
+                            "rule_hazards": sum(1 for e in rule_events if e.is_hazard),
+                        },
+                        camera_id=camera_id,
+                    )
 
-        # --- Stage 5: Container Analysis ---
-        try:
-            if self._tracer:
-                self._tracer.enter_module(
-                    "container_analyzer",
-                    input_info={
-                        "frames_to_analyze": len(detections_per_frame),
-                    },
-                )
+            except Exception as exc:
+                self._handle_stage_exception("hazard_rule_orchestrator", camera_id, exc)
+                if self._tracer:
+                    self._tracer.exit_module(
+                        "hazard_rule_orchestrator", output_info={"error": str(exc)}
+                    )
 
-            with PerformanceTimer("container_analysis", camera_id=camera_id) as timer:
-                container_events = self._container_analyzer.analyze(
-                    detections_per_frame, frame_sequence
-                )
+        else:
+            # --- Stage 4: Human Detection Analysis ---
+            try:
+                if self._tracer:
+                    self._tracer.enter_module(
+                        "human_detector",
+                        input_info={
+                            "frames_to_analyze": len(detections_per_frame),
+                        },
+                    )
 
-            stage_timings["container_analysis"] = timer.elapsed_ms
+                with PerformanceTimer("human_analysis", camera_id=camera_id) as timer:
+                    human_events = self._human_detector.analyze(
+                        detections_per_frame, camera_id
+                    )
 
-            if self._tracer:
-                self._tracer.exit_module(
-                    "container_analyzer",
-                    output_info={
-                        "events_produced": len(container_events),
-                        "hazards": sum(1 for e in container_events if e.is_hazard),
-                    },
-                )
+                stage_timings["human_analysis"] = timer.elapsed_ms
 
-            all_events.extend(container_events)
+                if self._tracer:
+                    self._tracer.exit_module(
+                        "human_detector",
+                        output_info={
+                            "events_produced": len(human_events),
+                            "hazards": sum(1 for e in human_events if e.is_hazard),
+                        },
+                    )
 
-            # Dump state after container analysis
-            if self._dumper:
-                self._dumper.dump(
-                    stage="post_container_analysis",
-                    state={
-                        "container_events_count": len(container_events),
-                        "container_hazards": sum(
-                            1 for e in container_events if e.is_hazard
-                        ),
-                    },
-                    camera_id=camera_id,
-                )
+                all_events.extend(human_events)
 
-        except Exception as exc:
-            self._handle_stage_exception("container_analyzer", camera_id, exc)
-            if self._tracer:
-                self._tracer.exit_module(
-                    "container_analyzer", output_info={"error": str(exc)}
-                )
+                # Dump state after human analysis
+                if self._dumper:
+                    self._dumper.dump(
+                        stage="post_human_analysis",
+                        state={
+                            "human_events_count": len(human_events),
+                            "human_hazards": sum(1 for e in human_events if e.is_hazard),
+                        },
+                        camera_id=camera_id,
+                    )
+
+            except Exception as exc:
+                self._handle_stage_exception("human_detector", camera_id, exc)
+                if self._tracer:
+                    self._tracer.exit_module(
+                        "human_detector", output_info={"error": str(exc)}
+                    )
+
+            # --- Stage 5: Container Analysis ---
+            try:
+                if self._tracer:
+                    self._tracer.enter_module(
+                        "container_analyzer",
+                        input_info={
+                            "frames_to_analyze": len(detections_per_frame),
+                        },
+                    )
+
+                with PerformanceTimer("container_analysis", camera_id=camera_id) as timer:
+                    container_events = self._container_analyzer.analyze(
+                        detections_per_frame, frame_sequence
+                    )
+
+                stage_timings["container_analysis"] = timer.elapsed_ms
+
+                if self._tracer:
+                    self._tracer.exit_module(
+                        "container_analyzer",
+                        output_info={
+                            "events_produced": len(container_events),
+                            "hazards": sum(1 for e in container_events if e.is_hazard),
+                        },
+                    )
+
+                all_events.extend(container_events)
+
+                # Dump state after container analysis
+                if self._dumper:
+                    self._dumper.dump(
+                        stage="post_container_analysis",
+                        state={
+                            "container_events_count": len(container_events),
+                            "container_hazards": sum(
+                                1 for e in container_events if e.is_hazard
+                            ),
+                        },
+                        camera_id=camera_id,
+                    )
+
+            except Exception as exc:
+                self._handle_stage_exception("container_analyzer", camera_id, exc)
+                if self._tracer:
+                    self._tracer.exit_module(
+                        "container_analyzer", output_info={"error": str(exc)}
+                    )
 
         # --- Stage 6: Alert Dispatch ---
         try:

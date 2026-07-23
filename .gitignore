@@ -22,6 +22,7 @@ runs/
 # Private/sensitive config
 config/ip_addresses_template.json
 config/ip_addresses.json
+hsse follow up .docx
 
 # Large media files
 docs/01_normal_operation.gif

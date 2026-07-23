@@ -1,0 +1,69 @@
+# Camera-Location-Aware Hazard Rules configuration.
+#
+# This file lets an operator override the built-in default rule sets
+# (defined in src/hazard_detection/rule_engine/rules.py's DEFAULT_RULES)
+# without any code change or redeployment, per requirements.md
+# Requirement 8. If this file is missing, the system falls back entirely
+# to the built-in defaults and logs a warning.
+#
+# Overrides are FIELD-LEVEL: specifying one field for a location type
+# does not reset the other fields of that location's rule set — they
+# keep their built-in default values.
+
+# ----------------------------------------------------------------------
+# location_type_overrides
+#
+# Keyed by Camera_Location_Type (must match one of: Berth, Block, TELs,
+# TEL, Wall St, Reefer Rack, Rail, Rail Storage, Pedestal, Flipline,
+# Plug Reefer, Airlocks, CEG, AssetManagement, Exit Fuel, VACIS).
+#
+# The three entries below are commented out on purpose — they are the
+# three items HSSE most explicitly flagged as "pending confirmation."
+# Uncomment and edit once HSSE clarifies:
+# ----------------------------------------------------------------------
+location_type_overrides:
+  Rail:
+    # Flip this once HSSE confirms the maintenance/supervisor exception.
+    # Until then, leave human_presence_policy as the built-in "prohibited"
+    # default — do NOT uncomment this without an explicit HSSE answer.
+    # human_presence_policy: conditional
+    notes: "Still pending — see rules.py DEFAULT_RULES for full context."
+  Plug Reefer:
+    # Flip once HSSE confirms the helmet requirement is NOT needed here:
+    # ppe_requirement:
+    #   helmet_required: false
+    notes: "Helmet requirement pending confirmation."
+  Exit Fuel:
+    notes: "Pending HSSE confirmation per original follow-up answer."
+
+# ----------------------------------------------------------------------
+# camera_name_overrides
+#
+# Maps a specific, exact Camera_Name string to a Camera_Location_Type.
+# This is the mechanism for resolving cameras with non-standard or
+# as-yet-unconfirmed names (VACIS, restroom-area cameras, etc.) without
+# any code change (requirements.md Requirement 7.4 / 8.6).
+# ----------------------------------------------------------------------
+camera_name_overrides:
+  "ADM Parking": "AssetManagement"
+  "FleetView Recording": "Unknown"
+  # Add real VACIS camera names here once known — see requirements.md 1.9
+  # "<real VACIS camera name>": "VACIS"
+  # Add restroom-area camera names here if OTR-operator exception
+  # locations turn out to have dedicated cameras — see requirements.md 1.10
+  # "<N trouble restrooms camera name>": "<appropriate location type>"
+  # "<exit restrooms camera name>": "<appropriate location type>"
+
+# ----------------------------------------------------------------------
+# camera_id_to_name
+#
+# Maps the short camera_id used elsewhere in the pipeline configuration
+# (hazard_detection.yaml's cameras.sequence) to the full Ocularis
+# Camera_Name string the rule-checking layer parses (requirements.md
+# Requirement 9.6). Placeholders below — replace with real camera names.
+# ----------------------------------------------------------------------
+camera_id_to_name:
+  cam_01: "A8 - SE PTZ - Block 1F"
+  cam_02: "A10 - NE - Berth 404"
+  cam_03: "TEL 118"
+  cam_04: "J10 - A PTZ North - Plug Reefer"

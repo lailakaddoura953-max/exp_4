@@ -92,6 +92,8 @@ class ConfigurationManager:
         self._raw_config: Dict[str, Any] = {}
         self._pipeline_config: Optional[PipelineConfig] = None
         self._defaults_applied: List[str] = []
+        # Lazily constructed on first get_camera_name() call — see that method.
+        self._location_rule_loader = None
 
     @property
     def config_path(self) -> str:
@@ -160,6 +162,40 @@ class ConfigurationManager:
                 "Configuration has not been loaded. Call load() first."
             )
         return self._pipeline_config
+
+    def get_camera_name(self, camera_id: str) -> str:
+        """
+        Look up the full Ocularis Camera_Name for a short camera_id.
+
+        Used by the camera-location-hazard-rules rule engine, which needs
+        the full display name (e.g. "A8 - SE PTZ - Block 1F") to resolve a
+        Camera_Location_Type — the short camera_id alone (e.g. "cam_01")
+        carries no location information.
+
+        Looks up `camera_id_to_name` from the location rules YAML
+        (config/location_rules.yaml by default). Falls back to the
+        camera_id string itself if no mapping is found, so an unmapped
+        camera still resolves (to "Unknown", via the fail-safe path)
+        rather than raising.
+
+        Args:
+            camera_id: The short camera identifier (e.g. "cam_01").
+
+        Returns:
+            The mapped Camera_Name, or camera_id itself if unmapped.
+        """
+        from hazard_detection.rule_engine.rules import (
+            DEFAULT_RULES_CONFIG_PATH,
+            LocationRuleLoader,
+        )
+
+        if self._location_rule_loader is None:
+            rules_config_path = self.get_raw_value(
+                "rule_engine.rules_config_path", DEFAULT_RULES_CONFIG_PATH
+            )
+            self._location_rule_loader = LocationRuleLoader(config_path=rules_config_path)
+
+        return self._location_rule_loader.camera_id_to_name.get(camera_id, camera_id)
 
     def get_raw_value(self, dotted_path: str, default: Any = None) -> Any:
         """

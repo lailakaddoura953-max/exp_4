@@ -34,6 +34,11 @@ VALID_HAZARD_TYPES = {
     "container_door_open",
     "container_flipped",
     "container_dangling",
+    # Added for the Camera-Location-Aware Hazard Rules engine
+    # (camera-location-hazard-rules spec, Requirements 5.3, 6.2, 6.6):
+    "vehicle_proximity",
+    "tel_zone_violation",
+    "tel_occupancy_violation",
 }
 
 
