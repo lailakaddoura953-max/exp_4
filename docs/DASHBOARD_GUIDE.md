@@ -19,7 +19,7 @@ The dashboard is a **single Flask process** serving:
 - **Static files** (HTML, CSS, JavaScript) on `/` and `/static/`
 - **REST API endpoints** on `/api/*` for inference, storage, and status
 
-This is a **minimal demo system** with no database, no authentication, and no live camera integration. All components are stubbed or mocked to enable development without external dependencies.
+This is a **minimal demo system** with no user-facing authentication and no multi-camera integration. Most components are stubbed or mocked to enable development without external dependencies — **with one exception**: the dashboard now supports one real live Wisenet camera over RTSP (see [Live Camera Capture](#live-camera-capture-real-rtsp-camera) below), including a persistent SQLite-backed archive of every captured frame. Full setup instructions for connecting a real camera are in `docs/LIVE_CAMERA_SETUP.md`.
 
 ```
 Browser (http://localhost:5000)
@@ -31,7 +31,10 @@ Flask Backend (src/dashboard/app.py)
     ├── POST /api/inference             → upload image → run YOLO → return results + annotated image
     ├── GET  /api/hazards/recent        → fetch 3 most recent events from in-memory store
     ├── GET  /api/status                → return system health (model_loaded, hazard_count, etc.)
-    └── GET  /api/test-image            → fetch random dataset image for demo
+    ├── GET  /api/test-image            → fetch random dataset image for demo
+    ├── POST /api/live-camera/capture   → trigger a real-camera 5-frame RTSP burst + inference
+    ├── GET  /api/live-camera/status    → poll live-camera config/progress/last result
+    └── GET  /api/live-camera/history   → query archived frames from capture_log.db (SQLite)
         ↓
     Inference Engine (src/dashboard/inference_engine.py)
         ├── Load checkpoint at startup
@@ -357,6 +360,95 @@ Content-Type: image/jpeg
 
 ---
 
+## Live Camera Capture (Real RTSP Camera)
+
+Unlike every other data path in this dashboard, the live camera feature
+connects to **one real physical camera** (a Hanwha Wisenet IP camera) over
+RTSP — it's the one part of the system that isn't stubbed or mocked.
+
+### How it works
+
+1. **Trigger**: either the "Capture 5-Frame Burst" button in the Live
+   Camera UI section, or an automatic hourly timer (60-minute floor,
+   enforced — see `MIN_AUTO_CAPTURE_INTERVAL_MINUTES` in
+   `src/dashboard/live_camera.py`).
+2. **Capture**: `LiveCameraCapture` opens `rtsp://user:pass@ip:554/profileN/media.smp`
+   via `cv2.VideoCapture`, reads 5 frames ~150ms apart, then closes the
+   connection. Connections are opened fresh per burst rather than held
+   open — simpler and more robust for an hourly/on-demand cadence.
+3. **Inference**: each of the 5 frames goes through the exact same
+   `InferenceEngine.run()` and `annotate()` calls used by dataset auto-cycle
+   and manual upload — no separate code path for "real" vs. "dataset"
+   frames downstream of capture.
+4. **Archival**: every frame — hazard or not — is saved to
+   `live_camera_captures/<camera_id>/<date>/<frame_id>.jpg` + a `.json`
+   sidecar, and mirrored into a SQLite database
+   (`live_camera_captures/capture_log.db`). This is deliberately different
+   from `HazardStore`, which only ever retains hazard events. See
+   [Data Retention: Keep Everything](#data-retention-keep-everything) below.
+
+### Endpoints
+
+- **`POST /api/live-camera/capture`** — triggers an on-demand burst,
+  returns the full result synchronously (frame capture + 5x inference
+  typically takes a few seconds). Returns HTTP 409 if a burst is already
+  running (from either this endpoint or the hourly timer).
+- **`GET /api/live-camera/status`** — returns whether the feature is
+  configured (`config/ip_addresses.json` present + model loaded), whether a
+  capture is currently in progress, the auto-capture interval, the total
+  `archived_frame_count` in the database, and the most recent burst result.
+- **`GET /api/live-camera/history?limit=20&hazard_only=false`** — returns
+  recent rows straight from `capture_log.db`'s `frames` table (including
+  the same location fields — facility/berth/crane/camera/landmark — shown
+  elsewhere in the dashboard's detail view), without touching the raw JSON
+  files.
+
+### Data Retention: Keep Everything
+
+Most hazard-detection systems only retain flagged events and discard
+everything else — that's exactly what `HazardStore` does on its own
+(in-memory, 20-event cap, hazard-only, lost on restart). The live camera
+path adds a second, parallel archive that keeps **every** frame:
+
+```
+live_camera_captures/
+├── capture_log.db                       ← SQLite, portable with this folder
+└── <camera_id>/
+    └── <YYYY-MM-DD>/
+        ├── <frame_id>.jpg                ← raw frame, kept forever
+        └── <frame_id>.json               ← detections + hazard flag
+```
+
+`frame_id` is the frame's own timestamp-derived filename — already unique,
+and it's the primary key in both the filesystem layout and the database's
+`frames` table, so any database row traces back to an exact file pair on
+disk.
+
+`capture_log.db` is created automatically (schema included) the first time
+a frame is saved. If it's ever missing or deleted, calling
+`sync_archive_to_db()` (in `src/dashboard/live_camera.py`) rebuilds it
+completely by walking every `.json` sidecar already on disk — no manual
+import step required, and safe to re-run at any time (upserts by
+`frame_id`, never duplicates).
+
+Nothing in this path deletes a file. Disk usage grows without bound by
+design — monitor available disk space on whichever machine runs long-term
+captures. There's no pruning logic; adding retention limits later would be
+a deliberate, separate change.
+
+### Configuration
+
+Real camera credentials live in `config/ip_addresses.json` (gitignored,
+per-machine — never committed). Copy
+`config/ip_addresses_template.json` to get started. Environment variables
+`DASHBOARD_LIVE_CAMERA_AUTO` (default `true`) and
+`DASHBOARD_LIVE_CAMERA_INTERVAL_MINUTES` (default `60`, clamped to a
+60-minute floor) control the automatic timer. Full setup walkthrough
+(including what to change on a second device that has the physical
+camera): **`docs/LIVE_CAMERA_SETUP.md`**.
+
+---
+
 ## Inference Engine: How It Works
 
 ### Single-Frame Hazard Classification
@@ -576,16 +668,16 @@ pip freeze > requirements.txt
 ## Current Limitations & Future Work
 
 ### Data Storage
-- **Current**: In-memory only (20 events, lost on restart)
-- **TODO**: Add PostgreSQL backend for persistent storage and querying
+- **Current**: `HazardStore` (hazard events only) is in-memory (20 events, lost on restart). Separately, the live camera path now persists **every** frame (hazard or not) to `live_camera_captures/` on disk with a SQLite index (`capture_log.db`) — see [Live Camera Capture](#live-camera-capture-real-rtsp-camera) above. Only the hazard-event side is still purely in-memory.
+- **TODO**: Add PostgreSQL backend for `HazardStore`-equivalent persistent event storage and querying; the raw-frame archive already persists independently
 
 ### Camera Integration
-- **Current**: Stubbed `CameraStub` class; hardcoded `camera_id="cam_stub_01"`
-- **TODO**: 
-  - Real camera IP/RTSP configuration
-  - Multi-camera support (tile view, per-camera alerts)
+- **Current**: The dashboard's main upload/auto-cycle path still uses the stubbed `CameraStub` class (`camera_id="cam_stub_01"`). **One real camera is wired in separately** via `src/dashboard/live_camera.py` — RTSP burst capture, on-demand button + hourly timer, feeding the same `InferenceEngine`.
+- **TODO**:
+  - Multi-camera support (currently only the first entry in `config/ip_addresses.json` is used)
   - Camera health monitoring (connection status, frame rate)
   - Automatic failover (if camera offline, use backup)
+  - Extend `CameraStub`'s upload/auto-cycle path itself to use real cameras (currently only the separate live-camera panel does)
 
 ### Zone & Facility Mapping
 - **Current**: Hardcoded berth/crane/camera names in stub lookup table

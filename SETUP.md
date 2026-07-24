@@ -14,6 +14,7 @@ docs/USER_GUIDE.md              — deep walkthrough of dataset → train → ru
 docs/TRAINING_GUIDE.md          — training internals, hyperparameters
 docs/CONFIGURATION_GUIDE.md     — full config/hazard_detection.yaml reference
 docs/DASHBOARD_GUIDE.md         — web dashboard architecture and API
+docs/LIVE_CAMERA_SETUP.md       — connecting a real RTSP camera to the dashboard
 scripts/annotation/SETUP.md     — annotation pipeline (segmentation + CNN fallback)
 .kiro/specs/cnn-fallback-annotation-pipeline/  — design docs for the CNN fallback
 ```
@@ -430,3 +431,4 @@ Use this to confirm a fresh machine is fully wired up:
 - Setting up annotation (either backend)? Read `scripts/annotation/SETUP.md`.
 - Curious about the CNN fallback's design rationale and requirements? Read `.kiro/specs/cnn-fallback-annotation-pipeline/`.
 - Building/demoing the web dashboard? Read `docs/DASHBOARD_GUIDE.md`.
+- Connecting a real camera to the dashboard (RTSP setup, credentials, another device)? Read `docs/LIVE_CAMERA_SETUP.md`.

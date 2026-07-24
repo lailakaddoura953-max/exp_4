@@ -145,7 +145,7 @@ if "!COPIES!"=="" set "COPIES=3"
 
 echo  Using --copies !COPIES!
 echo.
-python scripts/augment_dataset.py --copies !COPIES!
+python scripts/augment_dataset.py --dataset "!AUGMENT_TARGET!" --copies !COPIES!
 echo.
 
 set /p INSERT_HAZARD="  Insert hazard data? (y/n): "

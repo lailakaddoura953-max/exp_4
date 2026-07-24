@@ -86,6 +86,36 @@
         </section>
 
         <!-- ============================================================== -->
+        <!-- LIVE CAMERA (RTSP BURST) SECTION                                -->
+        <!-- ============================================================== -->
+        <section id="live-camera" class="live-camera-section">
+            <h2 class="section-heading">Live Camera</h2>
+            <div id="live-camera-display" class="live-camera-display">
+
+                <div class="live-camera-header">
+                    <span id="live-camera-badge" class="status-badge disconnected">Not Configured</span>
+                    <button id="live-camera-capture-btn" class="btn btn-primary" type="button">
+                        Capture 5-Frame Burst
+                    </button>
+                </div>
+
+                <p id="live-camera-empty-state" class="empty-state">
+                    No live camera capture has run yet.
+                </p>
+
+                <div id="live-camera-error" class="inference-error" style="display: none;" role="alert">
+                    <span id="live-camera-error-text"></span>
+                </div>
+
+                <div id="live-camera-frames" class="live-camera-frames">
+                    <!-- Frame cards injected by app.js, one per captured frame -->
+                </div>
+
+                <p id="live-camera-meta" class="live-camera-meta" style="display: none;"></p>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
         <!-- MAP SECTION                                                     -->
         <!-- ============================================================== -->
         <section id="map" class="map-section">

@@ -965,6 +965,87 @@ body {
 
 
 /* ============================================================
+   LIVE CAMERA (RTSP BURST CAPTURE) SECTION
+   ============================================================ */
+
+.live-camera-section {
+  margin-bottom: 2rem;
+}
+
+.live-camera-display {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.live-camera-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.live-camera-meta {
+  font-size: 0.85rem;
+  color: var(--color-gray-600);
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-gray-50);
+  border-radius: 6px;
+}
+
+.live-camera-frames {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.live-camera-frame-card {
+  border: 1px solid var(--color-gray-200);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--color-gray-50);
+}
+
+.live-camera-frame-card.has-hazard {
+  border-color: var(--border-human);
+  box-shadow: 0 0 0 1px var(--border-human);
+}
+
+.live-camera-frame-index {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-gray-600);
+  padding: 0.4rem 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.live-camera-frame-image {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  display: block;
+  background: var(--color-gray-900);
+}
+
+.live-camera-frame-missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-gray-400);
+  font-size: 0.85rem;
+}
+
+.live-camera-frame-detections {
+  padding: 0.5rem 0.6rem;
+}
+
+/* ============================================================
    MAP GRID LAYOUT — map left, location list right
    ============================================================ */
 

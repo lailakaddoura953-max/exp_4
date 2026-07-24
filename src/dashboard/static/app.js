@@ -838,3 +838,157 @@ if (document.readyState === 'loading') {
 } else {
   pollCycleCurrent();
 }
+
+/* ============================================================
+   LIVE CAMERA (RTSP BURST CAPTURE) SECTION
+   Two ways a burst can happen:
+     1. On-demand — "Capture 5-Frame Burst" button (POST /api/live-camera/capture)
+     2. Hourly timer running server-side — this UI just polls
+        GET /api/live-camera/status to pick up whichever fired last,
+        so the demo button and the automatic hourly capture both show
+        up in the same place.
+   ============================================================ */
+
+let _liveCameraBusy = false;
+let _lastLiveCameraTimestamp = null;
+
+function renderLiveCameraBadge(status) {
+  const badge = document.getElementById('live-camera-badge');
+  if (!badge) return;
+
+  if (!status.configured) {
+    badge.textContent = 'Not Configured';
+    badge.className = 'status-badge disconnected';
+  } else if (status.capture_in_progress) {
+    badge.textContent = 'Capturing…';
+    badge.className = 'status-badge connected';
+  } else {
+    badge.textContent = 'Ready';
+    badge.className = 'status-badge connected';
+  }
+}
+
+function renderLiveCameraResult(result) {
+  const emptyState = document.getElementById('live-camera-empty-state');
+  const errorEl    = document.getElementById('live-camera-error');
+  const errorText  = document.getElementById('live-camera-error-text');
+  const framesEl   = document.getElementById('live-camera-frames');
+  const metaEl     = document.getElementById('live-camera-meta');
+
+  if (!result) {
+    return;
+  }
+
+  if (!result.success) {
+    emptyState.style.display = 'none';
+    framesEl.innerHTML = '';
+    metaEl.style.display = 'none';
+    errorEl.style.display = '';
+    errorText.textContent = result.connection_error || 'Live camera capture failed.';
+    return;
+  }
+
+  errorEl.style.display = 'none';
+  emptyState.style.display = 'none';
+
+  framesEl.innerHTML = (result.frames || []).map((frame, idx) => {
+    const dets = frame.detections || [];
+    const hazardCount = dets.filter(d => d.is_hazard).length;
+    const imgHtml = frame.annotated_image
+      ? `<img class="live-camera-frame-image" src="data:image/png;base64,${frame.annotated_image}" alt="Live camera frame ${idx + 1}" loading="lazy" />`
+      : `<div class="live-camera-frame-image live-camera-frame-missing">No image</div>`;
+
+    const detHtml = dets.length
+      ? dets.map(d => `
+          <div class="detection-row ${d.is_hazard ? 'hazard' : 'safe'}">
+            <span class="det-class">${d.class_label}</span>
+            <span class="det-confidence">${(d.confidence * 100).toFixed(1)}%</span>
+            <span class="det-status">${d.is_hazard ? 'HAZARD' : 'OK'}</span>
+            <span class="det-reason">${d.hazard_reason || ''}</span>
+          </div>`).join('')
+      : '<p class="empty-state">No detections above threshold</p>';
+
+    return `
+      <div class="live-camera-frame-card ${hazardCount > 0 ? 'has-hazard' : ''}">
+        <div class="live-camera-frame-index">Frame ${idx + 1} of ${result.frames.length}</div>
+        ${imgHtml}
+        <div class="live-camera-frame-detections">${detHtml}</div>
+      </div>
+    `;
+  }).join('');
+
+  const timeStr = result.timestamp
+    ? new Date(result.timestamp).toLocaleString()
+    : '--';
+  metaEl.style.display = '';
+  metaEl.textContent = `Camera: ${result.camera_id || '—'} · Captured: ${timeStr} · ` +
+    `${result.hazards_found || 0} hazard(s) found across ${(result.frames || []).length} frame(s)`;
+}
+
+async function pollLiveCameraStatus() {
+  try {
+    const resp = await fetch('/api/live-camera/status');
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    renderLiveCameraBadge(data);
+
+    const btn = document.getElementById('live-camera-capture-btn');
+    if (btn) btn.disabled = data.capture_in_progress || _liveCameraBusy;
+
+    const result = data.last_result;
+    if (result && result.timestamp && result.timestamp !== _lastLiveCameraTimestamp) {
+      _lastLiveCameraTimestamp = result.timestamp;
+      renderLiveCameraResult(result);
+    }
+  } catch (err) {
+    // Silent — polling failures are transient
+  }
+}
+
+async function triggerLiveCameraCapture() {
+  const btn = document.getElementById('live-camera-capture-btn');
+  if (_liveCameraBusy) return;
+
+  _liveCameraBusy = true;
+  if (btn) btn.disabled = true;
+
+  const errorEl   = document.getElementById('live-camera-error');
+  const errorText = document.getElementById('live-camera-error-text');
+  errorEl.style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/live-camera/capture', { method: 'POST' });
+    const data = await resp.json();
+
+    if (resp.status === 409) {
+      errorEl.style.display = '';
+      errorText.textContent = 'A capture is already in progress — try again shortly.';
+      return;
+    }
+
+    _lastLiveCameraTimestamp = data.timestamp;
+    renderLiveCameraResult(data);
+  } catch (err) {
+    errorEl.style.display = '';
+    errorText.textContent = 'Network error — could not reach the server.';
+    console.error('[app.js] triggerLiveCameraCapture failed:', err);
+  } finally {
+    _liveCameraBusy = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+function initLiveCamera() {
+  const btn = document.getElementById('live-camera-capture-btn');
+  if (btn) btn.addEventListener('click', triggerLiveCameraCapture);
+
+  pollLiveCameraStatus();
+  setInterval(pollLiveCameraStatus, 15000);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initLiveCamera);
+} else {
+  initLiveCamera();
+}

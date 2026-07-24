@@ -12,6 +12,10 @@ image_data_normal_hazard_sanity/
 image_data_normal_hazard_sanity_split/
 maps/
 
+# Live camera frame archive — every captured frame (hazard or not) is
+# saved here by LiveCaptureArchiver; grows unbounded, local-only, never committed.
+live_camera_captures/
+
 # Third-party repo cloned per SETUP.md (has its own .git — never commit as a subtree)
 Grounded-SAM-2/
 
@@ -20,7 +24,9 @@ Grounded-SAM-2/
 runs/
 
 # Private/sensitive config
-config/ip_addresses_template.json
+# NOTE: ip_addresses_template.json is intentionally NOT ignored — it only
+# contains placeholder values and needs to be copied to ip_addresses.json
+# (which IS ignored) on each machine that connects to a real camera.
 config/ip_addresses.json
 hsse follow up .docx
 

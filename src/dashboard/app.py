@@ -293,6 +293,126 @@ _auto_cycle_thread = threading.Thread(target=_auto_cycle_loop, daemon=True, name
 _auto_cycle_thread.start()
 
 # ---------------------------------------------------------------------------
+# Live Camera (RTSP burst capture) — Task: camera-to-inference automation
+# ---------------------------------------------------------------------------
+
+from dashboard.live_camera import (
+    MIN_AUTO_CAPTURE_INTERVAL_MINUTES,
+    LiveCaptureService,
+    load_camera_config,
+)
+
+_live_camera_config = load_camera_config()
+
+# CHANGE LATER WHEN SUPERVISOR REVIEWS — hourly is the floor for the
+# production timer per explicit requirement; do not lower below 60 minutes.
+# Set DASHBOARD_LIVE_CAMERA_INTERVAL_MINUTES to a value >= 60 to change the
+# cadence, or DASHBOARD_LIVE_CAMERA_AUTO=false to disable the timer entirely
+# (on-demand /api/live-camera/capture still works either way).
+_LIVE_CAMERA_AUTO_ENABLED: bool = os.environ.get(
+    "DASHBOARD_LIVE_CAMERA_AUTO", "true"
+).lower() not in ("false", "0", "no")
+_LIVE_CAMERA_INTERVAL_MINUTES: int = max(
+    MIN_AUTO_CAPTURE_INTERVAL_MINUTES,
+    int(os.environ.get("DASHBOARD_LIVE_CAMERA_INTERVAL_MINUTES", str(MIN_AUTO_CAPTURE_INTERVAL_MINUTES))),
+)
+
+_live_capture_service: "LiveCaptureService | None" = None
+if _live_camera_config is not None and inference_engine is not None:
+    _live_capture_service = LiveCaptureService(
+        camera_config=_live_camera_config,
+        inference_engine=inference_engine,
+        hazard_store=hazard_store,
+    )
+    logger.info(
+        "Live camera capture ready — camera_id=%r, auto_capture=%s, interval_minutes=%d",
+        _live_camera_config.camera_id,
+        _LIVE_CAMERA_AUTO_ENABLED,
+        _LIVE_CAMERA_INTERVAL_MINUTES,
+    )
+else:
+    logger.warning(
+        "Live camera capture disabled — %s. "
+        "Set up config/ip_addresses.json (see config/ip_addresses_template.json) "
+        "and ensure the YOLO model is loaded to enable it.",
+        "no camera config found" if _live_camera_config is None else "model not loaded",
+    )
+
+# Most recent live-camera burst result (updated by the timer thread and by
+# the on-demand /api/live-camera/capture endpoint)
+_current_live_camera_result: dict | None = None
+_live_camera_lock = threading.Lock()
+_live_camera_capture_in_progress = threading.Event()
+
+
+def _run_live_camera_burst_locked() -> dict:
+    """
+    Run one live-camera burst and store the result under the lock.
+
+    Shared by both the hourly timer thread and the on-demand API endpoint
+    so concurrent triggers can't overlap and corrupt _current_live_camera_result.
+    """
+    global _current_live_camera_result
+
+    if _live_capture_service is None:
+        result = {
+            "camera_id": None,
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "success": False,
+            "connection_error": (
+                "Live camera capture is not configured. Set up "
+                "config/ip_addresses.json and ensure a YOLO model is loaded."
+            ),
+            "frames": [],
+            "hazards_found": 0,
+        }
+        with _live_camera_lock:
+            _current_live_camera_result = result
+        return result
+
+    _live_camera_capture_in_progress.set()
+    try:
+        result = _live_capture_service.run_burst()
+    finally:
+        _live_camera_capture_in_progress.clear()
+
+    with _live_camera_lock:
+        _current_live_camera_result = result
+    return result
+
+
+def _live_camera_timer_loop():
+    """
+    Background thread: triggers a live camera burst every
+    _LIVE_CAMERA_INTERVAL_MINUTES (hourly floor enforced). Runs
+    independently of the on-demand endpoint — either can trigger a burst
+    at any time; this loop just guarantees it also happens automatically.
+    """
+    logger.info(
+        "Live camera hourly timer started (interval=%d minutes).",
+        _LIVE_CAMERA_INTERVAL_MINUTES,
+    )
+    while True:
+        _time.sleep(_LIVE_CAMERA_INTERVAL_MINUTES * 60)
+        if _live_capture_service is None:
+            logger.debug("Live camera timer fired but service is not configured — skipping.")
+            continue
+        logger.info("Live camera hourly timer fired — starting scheduled burst.")
+        try:
+            _run_live_camera_burst_locked()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Scheduled live camera burst failed: %s: %s", type(exc).__name__, exc)
+
+
+if _LIVE_CAMERA_AUTO_ENABLED:
+    _live_camera_timer_thread = threading.Thread(
+        target=_live_camera_timer_loop, daemon=True, name="live-camera-timer"
+    )
+    _live_camera_timer_thread.start()
+else:
+    logger.info("Live camera hourly timer disabled via DASHBOARD_LIVE_CAMERA_AUTO=false.")
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -322,6 +442,97 @@ def api_cycle_current():
                 "timestamp": None,
             })
         return jsonify(_current_cycle_result)
+
+
+@app.route("/api/live-camera/capture", methods=["POST"])
+def api_live_camera_capture():
+    """
+    POST /api/live-camera/capture
+
+    Triggers an on-demand live-camera burst: opens the configured RTSP
+    stream, captures a 5-frame burst, runs each frame through the
+    InferenceEngine, and stores the result for /api/live-camera/status.
+
+    Returns HTTP 409 if a burst is already in progress (either from this
+    endpoint or the hourly timer) rather than overlapping two RTSP
+    connections to the same camera.
+
+    Returns the full burst result synchronously (frame capture + 5x
+    inference typically completes in a few seconds).
+    """
+    if _live_camera_capture_in_progress.is_set():
+        return jsonify({"error": "A live camera capture is already in progress"}), 409
+
+    result = _run_live_camera_burst_locked()
+    status_code = 200 if result.get("success") else 502
+    return jsonify(result), status_code
+
+
+@app.route("/api/live-camera/status", methods=["GET"])
+def api_live_camera_status():
+    """
+    GET /api/live-camera/status
+
+    Returns the most recent live-camera burst result (from either the
+    hourly timer or the on-demand endpoint), plus whether a capture is
+    currently in progress and whether live camera capture is configured
+    at all.
+    """
+    with _live_camera_lock:
+        result = _current_live_camera_result
+
+    archived_frame_count = None
+    if _live_capture_service is not None:
+        try:
+            archived_frame_count = _live_capture_service._archiver._get_db().count_frames()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("api_live_camera_status: could not read archived_frame_count: %s", exc)
+
+    return jsonify({
+        "configured": _live_capture_service is not None,
+        "capture_in_progress": _live_camera_capture_in_progress.is_set(),
+        "auto_capture_enabled": _LIVE_CAMERA_AUTO_ENABLED,
+        "interval_minutes": _LIVE_CAMERA_INTERVAL_MINUTES,
+        "archived_frame_count": archived_frame_count,
+        "last_result": result,
+    })
+
+
+@app.route("/api/live-camera/history", methods=["GET"])
+def api_live_camera_history():
+    """
+    GET /api/live-camera/history
+
+    Returns recent frame records from capture_log.db — the SQLite archive
+    that mirrors every captured frame (hazard or not), keyed by frame_id
+    (the snapshot's own timestamp-derived filename). Backed by
+    CaptureDatabase.fetch_recent_frames().
+
+    Query params:
+        limit       (int, default 20)  — max rows to return
+        hazard_only (bool, default false) — restrict to frames where at
+                                             least one detection was a hazard
+
+    Returns JSON: { success, data: [...], count }
+    Each item: { frame_id, camera_id, capture_timestamp, is_hazard_frame,
+                 image_path, sidecar_path, loc_facility, loc_berth,
+                 loc_crane, loc_camera_label, loc_landmark, recorded_at }
+    """
+    if _live_capture_service is None:
+        return jsonify({"success": False, "data": [], "count": 0, "error": "Live camera capture is not configured"}), 200
+
+    limit = request.args.get("limit", 20, type=int)
+    hazard_only = request.args.get("hazard_only", "false").lower() in ("true", "1", "yes")
+
+    try:
+        rows = _live_capture_service._archiver._get_db().fetch_recent_frames(
+            limit=limit, hazard_only=hazard_only
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("api_live_camera_history: query failed: %s", exc)
+        return jsonify({"success": False, "data": [], "count": 0, "error": str(exc)}), 500
+
+    return jsonify({"success": True, "data": rows, "count": len(rows)})
 
 
 @app.route("/api/inference", methods=["POST"])

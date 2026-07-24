@@ -1,0 +1,14 @@
+{
+  "cameras": {
+    "test_camera_01": {
+      "camera_id": "live_cam_01",
+      "ip": "192.168.1.100",
+      "rtsp_port": 554,
+      "username": "admin",
+      "password": "CHANGE_ME",
+      "profile": "profile2",
+      "location_id": 10
+    }
+  },
+  "notes": "Copy this file to config/ip_addresses.json (already gitignored — never commit real credentials). 'profile' is the Wisenet RTSP sub-stream: profile1 is the main/high-res stream, profile2 is the lower-res sub-stream (recommended for frequent snapshot bursts). 'location_id' should match one of the location ids in config/dashboard_map.json so the dashboard map can highlight where the live camera is. Only the first camera entry is used today (single live test camera); additional entries are ignored until multi-camera support is added."
+}

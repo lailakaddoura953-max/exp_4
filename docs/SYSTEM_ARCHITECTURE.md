@@ -1,7 +1,7 @@
 # System Architecture & Future Implementation Guide
 
 **Project:** Yard Safety CCTV — Hazard Detection  
-**Status:** Development / POC Stage (stub cameras, real inference on dataset imagery)  
+**Status:** Development / POC Stage (one real live camera wired into the dashboard via RTSP; production `main.py` pipeline still stubbed)  
 **Last Updated:** July 2026
 
 ---
@@ -12,14 +12,15 @@
 2. [Architecture Diagram](#architecture-diagram)
 3. [Component Inventory](#component-inventory)
 4. [Data Flow: Current State](#data-flow-current-state)
-5. [Configuration Files](#configuration-files)
-6. [What Works Today](#what-works-today)
-7. [What's Still Stubbed](#whats-still-stubbed)
-8. [TODO: Camera Integration](#todo-camera-integration)
-9. [TODO: Production Deployment](#todo-production-deployment)
-10. [TODO: Model Improvements](#todo-model-improvements)
-11. [TODO: Dashboard Enhancements](#todo-dashboard-enhancements)
-12. [TODO: Alerting System](#todo-alerting-system)
+5. [Live Camera Capture & Archive](#live-camera-capture--archive)
+6. [Configuration Files](#configuration-files)
+7. [What Works Today](#what-works-today)
+8. [What's Still Stubbed](#whats-still-stubbed)
+9. [TODO: Camera Integration](#todo-camera-integration)
+10. [TODO: Production Deployment](#todo-production-deployment)
+11. [TODO: Model Improvements](#todo-model-improvements)
+12. [TODO: Dashboard Enhancements](#todo-dashboard-enhancements)
+13. [TODO: Alerting System](#todo-alerting-system)
 
 ---
 
@@ -28,10 +29,12 @@
 This system monitors an industrial container terminal (16 major zones, hundreds of cameras) for safety hazards using YOLOv12 object detection combined with a **location-aware hazard rule engine** that applies zone-specific safety policies to each detection before deciding whether it's a real hazard or expected/permitted behavior.
 
 Two entry points exist:
-- **Dashboard** (`src/dashboard/app.py`) — web-based inference UI, auto-cycles through dataset imagery, demonstrates the full pipeline visually
+- **Dashboard** (`src/dashboard/app.py`) — web-based inference UI, auto-cycles through dataset imagery, demonstrates the full pipeline visually. Now also supports pulling frames from **one real Wisenet RTSP camera** (`src/dashboard/live_camera.py`) — either on-demand (a "Capture 5-Frame Burst" button) or on an hourly timer — as a smaller, dashboard-scoped slice of full camera integration (see [What's Still Stubbed](#whats-still-stubbed) below).
 - **Detection Pipeline** (`src/hazard_detection/main.py`) — the future production loop for live camera feeds, currently runs with a stub frame sampler serving dataset images
 
 Both paths share the same YOLO model, rule engine, and class taxonomy.
+
+A third, related concern — **data retention** — is also handled differently than a typical hazard-only system: every frame captured from the live camera is archived to disk and indexed in a SQLite database, regardless of whether it contained a hazard. See [Live Camera Capture & Archive](#live-camera-capture--archive) below.
 
 ---
 
@@ -45,13 +48,19 @@ Both paths share the same YOLO model, rule engine, and class taxonomy.
 │  ├─ index.html + app.js + styles.css       ├─ Continuous camera loop    │
 │  ├─ Auto-cycle (hourly / 10-min demo)      ├─ _StubFrameSampler         │
 │  ├─ Manual image upload                    │   └─ FrameSourceManager    │
-│  └─ REST API                               │       (real images)        │
-│      POST /api/inference                   └─ Per-camera timeout/skip   │
+│  ├─ Live Camera (RTSP burst, real camera)  │       (real images)        │
+│  │   ├─ On-demand button                   └─ Per-camera timeout/skip   │
+│  │   └─ Hourly timer (60 min floor)                                    │
+│  └─ REST API                                                            │
+│      POST /api/inference                                                │
 │      GET  /api/cycle/current                                            │
 │      GET  /api/hazards/recent                                           │
 │      GET  /api/status                                                   │
 │      GET  /api/map/config                                               │
 │      GET  /api/test-image                                               │
+│      POST /api/live-camera/capture                                      │
+│      GET  /api/live-camera/status                                       │
+│      GET  /api/live-camera/history                                      │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -82,17 +91,22 @@ Both paths share the same YOLO model, rule engine, and class taxonomy.
 │  ├─ image_data_with_synth/ (real footage + synthetic hazards)           │
 │  │   └─ augmented_hazards/ + normal_operations/                         │
 │  ├─ roboflow data/ (annotated training dataset, ~935 train images)      │
-│  └─ [FUTURE] Live RTSP camera feeds                                     │
+│  └─ Live RTSP camera (one real camera, dashboard-scoped — see below)    │
 │                                                                          │
 │  Configuration:                                                          │
 │  ├─ config/hazard_detection.yaml (pipeline config + checkpoint path)    │
 │  ├─ config/location_rules.yaml (zone rule overrides + camera mappings)  │
-│  └─ config/dashboard_map.json (folder→location mapping + pin positions) │
+│  ├─ config/dashboard_map.json (folder→location mapping + pin positions) │
+│  └─ config/ip_addresses.json (real camera RTSP credentials, gitignored)│
 │                                                                          │
 │  Storage:                                                                │
-│  ├─ HazardStore (in-memory, 20 events, lost on restart)                 │
+│  ├─ HazardStore (in-memory, 20 events, hazard-only, lost on restart)    │
+│  ├─ live_camera_captures/ (every live-camera frame, JPEG+JSON, kept    │
+│  │   forever — hazard or not; see Live Camera Capture & Archive)       │
+│  │   └─ capture_log.db (SQLite index over the same frames, auto-       │
+│  │       generated/rebuildable from the JSON sidecars)                 │
 │  ├─ logs/rule_audit.jsonl (every rule decision, persistent)             │
-│  └─ [FUTURE] PostgreSQL for persistent event history                    │
+│  └─ [FUTURE] PostgreSQL for persistent hazard-event history            │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -112,6 +126,9 @@ Both paths share the same YOLO model, rule engine, and class taxonomy.
 | InferenceEngine | `src/dashboard/inference_engine.py` | Single-frame YOLO + rules wrapper |
 | FrameSourceManager | `src/dashboard/frame_source.py` | Auto-cycles through dataset images |
 | CheckpointResolver | `src/dashboard/checkpoint_resolver.py` | Finds the best available .pt checkpoint |
+| LiveCameraCapture / LiveCaptureService | `src/dashboard/live_camera.py` | Opens a real camera's RTSP stream, bursts 5 frames, runs inference, archives every frame |
+| LiveCaptureArchiver | `src/dashboard/live_camera.py` | Saves every captured frame (JPEG + JSON) to disk, hazard or not |
+| CaptureDatabase | `src/dashboard/capture_db.py` | SQLite index (`frames` + `detections` tables) over the archived frames; auto-rebuilds from JSON sidecars |
 | Class Taxonomy | `src/hazard_detection/rule_engine/class_taxonomy.py` | Shared 17-class / 12-class (reduced) lists |
 
 ---
@@ -149,6 +166,95 @@ Both paths share the same YOLO model, rule engine, and class taxonomy.
 5. Cycle to next camera, repeat every ~8ms per camera (fast when stub)
 ```
 
+### Live Camera Burst (button click, or hourly timer)
+
+```
+1. LiveCameraCapture opens rtsp://user:pass@ip:554/profileN/media.smp via cv2.VideoCapture
+2. Reads 5 frames in quick succession (~150ms apart), releases the connection
+3. For each frame:
+   a. InferenceEngine.run(frame, camera_id) — same engine as auto-cycle/upload
+   b. annotate(frame, results) — same annotator
+   c. Hazard detections → HazardStore (hazard-only, same as other paths)
+   d. Every frame (hazard or not) → LiveCaptureArchiver.save_frame()
+        → live_camera_captures/<camera_id>/<date>/<frame_id>.jpg + .json
+        → CaptureDatabase.record_frame() mirrors the same data into
+          capture_log.db's frames/detections tables
+4. Full burst result → /api/live-camera/status cache; frontend polls + renders
+```
+
+See [Live Camera Capture & Archive](#live-camera-capture--archive) for why every
+frame (not just hazards) is kept, and how the SQLite index works.
+
+---
+
+## Live Camera Capture & Archive
+
+This is the one part of the system that deliberately differs from a
+"standard" hazard-detection setup: **every frame captured from the live
+camera is kept, not just the ones flagged as hazards.**
+
+### Why
+
+Most hazard-detection systems discard non-hazard frames — only flagged
+events get retained. `HazardStore` alone behaves that way here too
+(in-memory, 20-event cap, hazard-only, wiped on restart). But the live
+camera path adds a second, parallel retention mechanism that keeps
+*everything*, so the full capture history is available later for review,
+audit, or reuse (e.g. retraining on real "no hazard" frames, not just
+synthetic ones).
+
+### How
+
+```
+Camera (RTSP) → LiveCameraCapture → 5 raw frames
+                                          │
+                    ┌─────────────────────┼─────────────────────┐
+                    ▼                     ▼                     ▼
+            InferenceEngine.run()   annotate()          LiveCaptureArchiver
+                    │                     │              .save_frame()
+                    ▼                     ▼                     │
+              HazardResult[]      annotated PNG                 │
+                    │                (for UI)                  │
+                    ▼                                           ▼
+          HazardStore.append()                    live_camera_captures/<camera_id>/<date>/
+          (hazard-only, in-memory,                    <frame_id>.jpg   (raw frame, kept forever)
+           capped, lost on restart)                   <frame_id>.json  (detections + hazard flag)
+                                                              │
+                                                              ▼
+                                                  CaptureDatabase.record_frame()
+                                                  capture_log.db → frames + detections tables
+```
+
+- **`frame_id`** is the frame's own filename stem (its capture timestamp,
+  filesystem-safe — e.g. `2026-07-24T14-03-01.120000Z_frame0`). It's the
+  primary key in both the filesystem layout and the `frames` table, so a
+  database row always traces back to an exact `.jpg`/`.json` pair on disk.
+- **SQLite, not a server database**: chosen specifically because it's
+  file-based and portable. `capture_log.db` lives inside
+  `live_camera_captures/` itself, so copying that one directory to another
+  machine brings the whole queryable history with it.
+- **Auto-generating / self-healing**: `capture_log.db` is created
+  automatically (schema included) the first time a frame is saved — no
+  manual setup. If it's ever missing or deleted,
+  `sync_archive_to_db()` rebuilds it completely by walking every JSON
+  sidecar already on disk. Both the live-write path and the rebuild path
+  funnel through the same upsert logic (matched on `frame_id`), so
+  re-running the rebuild is always safe.
+- **No pruning**: nothing in this path ever deletes a file or a row. Disk
+  usage grows without bound by design — that's the explicit "keep
+  everything" requirement, not an oversight. Disk space should be
+  monitored on whichever machine runs long-term captures.
+
+Two dashboard endpoints expose this data:
+- `GET /api/live-camera/status` — includes `archived_frame_count` (total
+  rows in `frames`), so the archive's growth is visible from the same
+  status poll the UI already uses.
+- `GET /api/live-camera/history?limit=20&hazard_only=false` — returns
+  recent frame rows (including the location fields shown in the
+  dashboard's detail view) straight from `capture_log.db`.
+
+Full setup and query instructions: **`docs/LIVE_CAMERA_SETUP.md`**.
+
 ---
 
 ## Configuration Files
@@ -158,6 +264,8 @@ Both paths share the same YOLO model, rule engine, and class taxonomy.
 | `config/hazard_detection.yaml` | Main system config (cameras, thresholds, checkpoint) | Changing model, adding cameras, tuning thresholds |
 | `config/location_rules.yaml` | Zone rule overrides + camera_name_overrides + camera_id_to_name | HSSE confirms a pending rule, new camera names appear |
 | `config/dashboard_map.json` | Folder→location mapping + map pin positions | New dataset folders appear, pin positions need adjustment |
+| `config/ip_addresses_template.json` | Committed template for live-camera RTSP credentials | Reference when setting up a new machine |
+| `config/ip_addresses.json` | Real live-camera RTSP credentials (gitignored, per-machine) | Connecting a real camera on a given device — see `docs/LIVE_CAMERA_SETUP.md` |
 
 ---
 
@@ -172,6 +280,8 @@ Both paths share the same YOLO model, rule engine, and class taxonomy.
 - Site map PNG displayed on dashboard
 - Checkpoint auto-discovery (most recent best.pt)
 - Full audit trail of every rule decision (JSON-lines)
+- **One real live Wisenet camera** wired into the dashboard via RTSP — on-demand burst capture (button) and an hourly automatic timer, both running the same inference pipeline as dataset images
+- **Every live-camera frame archived** (JPEG + JSON), hazard or not, plus a self-healing SQLite index (`capture_log.db`) queryable via `/api/live-camera/history`
 - 738+ unit tests passing
 
 ---
@@ -180,11 +290,12 @@ Both paths share the same YOLO model, rule engine, and class taxonomy.
 
 | Feature | Current State | What's Needed |
 |---|---|---|
-| **Live cameras** | `_StubFrameSampler` serves dataset images | Real RTSP/IP camera adapter (see TODO below) |
-| **Camera-to-location mapping** | Folder names → map locations via JSON config | Real Ocularis camera names → CameraLocationResolver |
+| **Live cameras (production `main.py` loop)** | `_StubFrameSampler` serves dataset images. The **dashboard** now has one real RTSP camera wired in (`src/dashboard/live_camera.py`) — that part is no longer stubbed, just scoped to the dashboard rather than the production pipeline | Wire real cameras into `FrameAcquisitionModule`/`main.py` for the multi-camera production loop (see TODO below) |
+| **Camera-to-location mapping** | Folder names → map locations via JSON config; the live camera path uses a single `location_id` in `config/ip_addresses.json` | Real Ocularis camera names → CameraLocationResolver |
 | **Map pin positions** | Removed (inaccurate); location list shown as cards | Visual calibration against site_map.png |
 | **Dashboard rules → orchestrator** | Dashboard still uses `dashboard.rules.py` | Wire `HazardRuleOrchestrator` as opt-in (same pattern as DetectionPipeline) |
-| **Persistent storage** | In-memory HazardStore (20 events, lost on restart) | PostgreSQL backend |
+| **Hazard-event storage** | In-memory HazardStore (20 events, hazard-only, lost on restart) | PostgreSQL backend |
+| **Raw frame archive** | Already persistent — `live_camera_captures/` + `capture_log.db` keep every live-camera frame indefinitely, hazard or not | None needed for this scope; a future retention/pruning policy would be an explicit, separate addition |
 | **Alerting** | Log-only channel (no real notifications) | Email/SMS/Slack integration |
 | **Reduced-class retraining** | Class list defined; no 12-class checkpoint yet | Run training on roboflow data/ with remapped labels |
 
@@ -193,6 +304,14 @@ Both paths share the same YOLO model, rule engine, and class taxonomy.
 ## TODO: Camera Integration
 
 **Priority: HIGH — this is the next major milestone.**
+
+**Update:** the dashboard-scoped slice of this (one real camera, RTSP, feeding
+the dashboard's existing `InferenceEngine`) is done — see
+[Live Camera Capture & Archive](#live-camera-capture--archive) and
+`docs/LIVE_CAMERA_SETUP.md`. What remains below is the larger,
+multi-camera **production** integration into `main.py`'s continuous loop,
+which is a separate and bigger undertaking (4+ cameras, `FrameAcquisitionModule`,
+`HazardRuleOrchestrator` with real Ocularis names).
 
 ### Approach
 
@@ -210,8 +329,13 @@ The system is already designed for real cameras — the integration seam is clea
 4. **Dashboard integration**: once live cameras feed `main.py`, the dashboard could either:
    - Poll `main.py`'s hazard events via a shared database/queue, or
    - Run its own parallel inference on camera snapshots (current architecture)
-   
-   The simpler near-term path is option B — the dashboard already does single-frame inference. Add an endpoint that grabs the latest frame from a specific camera and runs inference on it.
+
+   **Done for one camera:** option B is now implemented — `src/dashboard/live_camera.py`'s
+   `LiveCaptureService` grabs a 5-frame burst from a real RTSP camera and runs
+   the dashboard's existing `InferenceEngine` on each frame, via
+   `POST /api/live-camera/capture` and an hourly timer. Extending this to
+   multiple cameras would mean generalizing `RTSPCameraConfig`/
+   `load_camera_config()` beyond "first camera in the JSON file only."
 
 ### Files to modify
 
@@ -226,6 +350,13 @@ The system is already designed for real cameras — the integration seam is clea
 ### Prerequisite
 
 The `src/models/core.py` module (reconstructed in this session) must be importable. Currently it requires both `.` and `src` on `PYTHONPATH`. A cleaner fix: change `src/acquisition/__init__.py` and `src/cv/flow_analyzer.py` to use relative imports (`from .frame_acquisition import ...` and `from models.core import ...`) instead of the `src.` prefix pattern. That's a 2-line fix but touches files owned by a different spec.
+
+### Related, already done
+
+See `docs/LIVE_CAMERA_SETUP.md` for the full how-to on the dashboard's
+single-camera RTSP integration (setup on a new device, credentials file,
+troubleshooting connection issues) — useful reference even though it's a
+smaller scope than the multi-camera production wiring described above.
 
 ---
 
@@ -325,4 +456,9 @@ python -m pytest tests/unit/ -v --tb=short
 REM 10-minute demo cycle (dashboard):
 set DASHBOARD_CYCLE_MINUTES=10
 python -m dashboard.app
+
+REM Live camera (dashboard): copy config/ip_addresses_template.json to
+REM config/ip_addresses.json, fill in real credentials, then run the
+REM dashboard normally — see docs/LIVE_CAMERA_SETUP.md for full details.
+copy config\ip_addresses_template.json config\ip_addresses.json
 ```
