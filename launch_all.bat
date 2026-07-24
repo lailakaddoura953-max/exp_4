@@ -177,7 +177,14 @@ echo     2) roboflow data
 echo.
 set /p TRAIN_FOLDER="  Select folder (1-2): "
 
-if "!TRAIN_FOLDER!"=="1" set "TRAIN_DATA=image_data_with_synth/data.yaml"
+if "!TRAIN_FOLDER!"=="1" (
+    echo.
+    echo  Re-packaging image_data_with_synth into 12-class trainable format...
+    echo.
+    python scripts/package_image_data_with_synth.py --reduced_classes --output_dir "image_data_with_synth_split" --val_fraction 0.15
+    echo.
+    set "TRAIN_DATA=image_data_with_synth_split/data.yaml"
+)
 if "!TRAIN_FOLDER!"=="2" set "TRAIN_DATA=roboflow data/data.yaml"
 
 if "!TRAIN_DATA!"=="" (

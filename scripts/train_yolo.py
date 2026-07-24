@@ -6,9 +6,9 @@ Usage:
     python scripts/train_yolo.py --epochs 50          # fewer epochs
     python scripts/train_yolo.py --resume             # resume from last.pt
     python scripts/train_yolo.py --batch 8            # smaller batch (low VRAM)
-    python scripts/train_yolo.py --data "image_data_with_synth/data.yaml"
-                                                        # train against image_data_with_synth/
-                                                        # instead of roboflow data/ (see --data below)
+    python scripts/train_yolo.py --data "image_data_with_synth_split/data.yaml"
+                                                        # train against the packaged
+                                                        # image_data_with_synth/ split
 
 The best checkpoint is saved to:
     runs/train/hazard_yolo/weights/best.pt
@@ -16,6 +16,17 @@ The best checkpoint is saved to:
 Update config/hazard_detection.yaml to point at it after training:
     yolo:
       checkpoint_path: "runs/train/hazard_yolo/weights/best.pt"
+
+NOTE on image_data_with_synth training:
+    If you've already got image_data_with_synth_split/ sitting there from a
+    previous run without --reduced_classes, the data.yaml will say nc=17 and
+    training will use all 17 classes (hurting performance). To fix this, either:
+      - Use launch_all.bat's Train option (it re-packages with --reduced_classes
+        automatically), or
+      - Manually run:
+        python scripts/package_image_data_with_synth.py --reduced_classes --output_dir image_data_with_synth_split --val_fraction 0.15
+    This regenerates data.yaml with nc=12 (the Reduced_Class_Set) and remaps
+    all label indices accordingly.
 """
 import sys
 import argparse
