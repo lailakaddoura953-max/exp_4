@@ -10,8 +10,8 @@ cameras:
   sequence: ["cam_01", "cam_02", "cam_03", "cam_04"]
 
 yolo:
-  checkpoint_path: "checkpoints/hazard_yolo/weights/best.pt"  # update to your local path
-  device: "cuda"
+  checkpoint_path: "yolo12n.pt"  # placeholder pretrained checkpoint for smoke-testing; retrain and update to your hazard-specific checkpoint
+  device: "cpu"
   input_resolution: 640          # 320-750
   confidence_threshold: 0.5
 

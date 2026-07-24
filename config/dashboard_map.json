@@ -1,0 +1,30 @@
+{
+  "folder_to_location": {
+    "berth_401": 10,
+    "berth_405_and_knuckle": 16,
+    "E2_C_PTZ_Pedestal": 8,
+    "E10_East_PTZ_Wall_st": 8,
+    "TEL_1-35": 9,
+    "TEL_144": 9
+  },
+  "default_location_range": [1, 16],
+  "notes": "Unmapped folders get a deterministic random location in default_location_range (hash of folder name mod 16 + 1). Pin positions are percentage-based relative to site_map.png dimensions.",
+  "locations": [
+    {"id": 1,  "name": "In-Gate",                    "x_pct": 88, "y_pct": 48},
+    {"id": 2,  "name": "Out-Gate",                   "x_pct": 42, "y_pct": 72},
+    {"id": 3,  "name": "Admin Building",             "x_pct": 30, "y_pct": 60},
+    {"id": 4,  "name": "Reefer Racks",               "x_pct": 10, "y_pct": 42},
+    {"id": 5,  "name": "Asset Management",           "x_pct": 28, "y_pct": 82},
+    {"id": 6,  "name": "Rail",                       "x_pct": 55, "y_pct": 52},
+    {"id": 7,  "name": "Genset Drop-off / Pick-Up",  "x_pct": 33, "y_pct": 72},
+    {"id": 8,  "name": "Clean Truck Express Lane",   "x_pct": 90, "y_pct": 42},
+    {"id": 9,  "name": "Truck Exchange Lane",        "x_pct": 58, "y_pct": 45},
+    {"id": 10, "name": "Highline",                   "x_pct": 18, "y_pct": 12},
+    {"id": 11, "name": "Container Exchange Gates",   "x_pct":  5, "y_pct": 55},
+    {"id": 12, "name": "Roadability",                "x_pct": 22, "y_pct": 88},
+    {"id": 13, "name": "Vendor Gate",                "x_pct": 38, "y_pct": 58},
+    {"id": 14, "name": "Truck Exchange Lanes Path",  "x_pct": 68, "y_pct": 45},
+    {"id": 15, "name": "Yard Layout",               "x_pct": 42, "y_pct": 28},
+    {"id": 16, "name": "Ship-to-Shore Cranes",      "x_pct": 58, "y_pct": 12}
+  ]
+}

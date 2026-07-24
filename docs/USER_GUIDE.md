@@ -1238,37 +1238,59 @@ use that to diagnose the edge case.
 
 ## Road Map: One-Click Desktop App
 
-The goal is a double-clickable `.bat` (and eventually `.exe`) that:
-1. Opens a terminal showing the detection pipeline running
-2. Opens a terminal showing live training status (if retraining)
-3. Falls back to simulated data if no cameras are detected
+The system now includes two launcher batch files:
 
-**Current state of `launch_all.bat` (planned):**
+### `start_webapp.bat` — Dashboard Launcher
 
-```bat
-@echo off
-REM Hazard Detection System — Full Launcher
-REM =========================================
-REM Double-click to start everything.
+Double-click to start the hazard inference dashboard:
+- Activates the virtual environment
+- Starts the Flask backend (port 5000)
+- Opens `http://localhost:5000` in your browser
 
-set PROJECT_DIR=%~dp0
-cd /d "%PROJECT_DIR%"
-
-REM 1. Start main detection pipeline
-start "Hazard Detection" cmd /k ".venv\Scripts\activate && python -m src.hazard_detection.main --config config/hazard_detection.yaml"
-
-REM 2. Open evaluation results folder (so you can see charts)
-timeout /t 3 /nobreak >nul
-start "" "evaluation_results"
-
-echo All systems launched. Close the terminal windows to stop.
-pause
+```cmd
+start_webapp.bat
 ```
 
-> **Next milestone:** A `launch_all.bat` that starts the pipeline, opens
-> the diagnostics folder, and provides a clear status message. Once the
-> pipeline produces output we are happy with on real cameras, we wrap
-> it into a desktop shortcut following the pattern from `exp_2/create_desktop_shortcut.bat`.
+The dashboard auto-cycles through dataset images (hourly by default, or every
+10 minutes in demo mode), runs YOLO inference on each, and displays results
+with location context. Set `DASHBOARD_CYCLE_MINUTES=10` for faster cycling.
+
+### `launch_all.bat` — Training Pipeline Menu
+
+Double-click for an interactive training workflow:
+
+```
+=== Yard Hazard Detection — Training Pipeline ===
+  1) Check folder dataset
+  2) Augment a dataset
+  3) Train new model
+  4) Evaluate current best
+  5) Run inference engine test
+  6) Exit
+```
+
+**Option 1 — Check folder dataset**: Select a dataset folder, optionally add
+hazard data, then view annotated images with bounding boxes to verify labels.
+
+**Option 2 — Augment a dataset**: Select folder + target size per class
+(100/300/500), then optionally inject synthetic hazards.
+
+**Option 3 — Train new model**: Select dataset folder, runs `train_yolo.py`.
+
+**Option 4 — Evaluate current best**: Runs `evaluate_yolo.py` on the
+auto-discovered checkpoint.
+
+**Option 5 — Inference engine test**: Randomly picks an image from the dataset,
+runs YOLO inference, shows annotated result in an OpenCV window with colored
+bounding boxes (red=hazard, green=safe), and prints text results to terminal.
+Includes a stub option for live camera snapshots (not yet implemented).
+
+### Inference Test Script
+
+```cmd
+python scripts/inference_test.py          # display in OpenCV window
+python scripts/inference_test.py --save   # also save to runs/inference_test/
+```
 
 ---
 
@@ -1277,6 +1299,23 @@ pause
 ```cmd
 REM Verify everything is installed
 python scripts/check_install.py
+
+REM === DASHBOARD ===
+REM Start the web dashboard (one-click)
+start_webapp.bat
+
+REM Or manually:
+set PYTHONPATH=.;src
+python -m dashboard.app
+
+REM Dashboard with 10-minute demo cycle:
+set DASHBOARD_CYCLE_MINUTES=10
+python -m dashboard.app
+
+REM === TRAINING PIPELINE (interactive menu) ===
+launch_all.bat
+
+REM === INDIVIDUAL SCRIPTS ===
 
 REM Check dataset split sizes (roboflow data/)
 python scripts/check_dataset.py
@@ -1315,6 +1354,10 @@ python scripts/run_on_test_images.py
 REM Run inference against image_data_with_synth/ instead
 python scripts/run_on_test_images.py --source "image_data_with_synth/augmented_hazards"
 
+REM Run inference test (random image + OpenCV display)
+python scripts/inference_test.py
+python scripts/inference_test.py --save
+
 REM Run live detection pipeline
 python -m hazard_detection.main --config config/hazard_detection.yaml
 
@@ -1325,6 +1368,7 @@ python -m pytest tests/unit/ -v --tb=short
 ---
 
 *See also:*
+- `docs/SYSTEM_ARCHITECTURE.md` — full system design, component inventory, and future implementation roadmap
 - `docs/CONFIGURATION_GUIDE.md` — full config field reference
 - `docs/TRAINING_GUIDE.md` — deep-dive training and hyperparameter tuning
 - `.kiro/specs/hazard-detection-system/requirements.md` — system requirements
@@ -1332,3 +1376,4 @@ python -m pytest tests/unit/ -v --tb=short
 - `.kiro/specs/camera-location-hazard-rules/requirements.md` — location-aware hazard rules requirements
 - `.kiro/specs/camera-location-hazard-rules/design.md` — rule engine architecture and design decisions
 - `.kiro/specs/camera-location-hazard-rules/tasks.md` — implementation plan and status
+- `.kiro/specs/yard-hazard-inference-dashboard-v2/` — dashboard v2 spec (requirements, design, tasks)

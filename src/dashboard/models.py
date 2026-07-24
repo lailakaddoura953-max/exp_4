@@ -190,6 +190,43 @@ class LocationContext:
         }
         # --- End stub mapping table ---------------------------------------
 
+        # --- Location-number pattern (from auto-cycle: "location_10") -----
+        # Maps to real terminal zone names from config/dashboard_map.json's
+        # location list. Falls through to stub table if not matched.
+        _LOCATION_NAMES: dict[int, str] = {
+            1: "In-Gate",
+            2: "Out-Gate",
+            3: "Admin Building",
+            4: "Reefer Racks",
+            5: "Asset Management",
+            6: "Rail",
+            7: "Genset Drop-off / Pick-Up",
+            8: "Clean Truck Express Lane",
+            9: "Truck Exchange Lane",
+            10: "Highline",
+            11: "Container Exchange Gates",
+            12: "Roadability",
+            13: "Vendor Gate",
+            14: "Truck Exchange Lanes Path",
+            15: "Yard Layout",
+            16: "Ship-to-Shore Cranes",
+        }
+
+        # Check for "location_N" pattern first (auto-cycle camera_id format)
+        if camera_id.startswith("location_"):
+            try:
+                loc_num = int(camera_id.split("_", 1)[1])
+                loc_name = _LOCATION_NAMES.get(loc_num, f"Location {loc_num}")
+                return cls(
+                    facility="Railyard",
+                    berth=loc_name,
+                    crane="",
+                    camera=f"Area {loc_num}",
+                    landmark=loc_name,
+                )
+            except (ValueError, IndexError):
+                pass
+
         if camera_id in _table:
             berth, crane, camera = _table[camera_id]
         else:

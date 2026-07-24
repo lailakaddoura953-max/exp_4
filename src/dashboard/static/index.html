@@ -64,6 +64,28 @@
         </section>
 
         <!-- ============================================================== -->
+        <!-- LIVE INFERENCE (AUTO-CYCLE) SECTION                              -->
+        <!-- ============================================================== -->
+        <section id="live-inference" class="live-inference-section">
+            <h2 class="section-heading">Live Inference</h2>
+            <div id="live-inference-display" class="live-inference-display">
+                <div id="live-image-container" class="live-image-container">
+                    <img id="live-annotated-image" class="live-annotated-image" alt="Auto-cycle inference result" style="display: none;" />
+                    <p id="live-empty-state" class="empty-state">Waiting for first auto-cycle result...</p>
+                </div>
+                <div id="synth-disclaimer" class="synth-disclaimer" style="display: none;">
+                    This image has been synthetically injected with hazards or augmented. It is not live footage.
+                </div>
+                <div id="live-detection-list" class="live-detection-list">
+                    <!-- Detection rows injected by app.js -->
+                </div>
+                <div id="live-location-context" class="live-location-context">
+                    <!-- Location info injected by app.js -->
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
         <!-- MAP SECTION                                                     -->
         <!-- ============================================================== -->
         <section id="map" class="map-section">

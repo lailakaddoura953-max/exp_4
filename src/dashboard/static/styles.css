@@ -854,3 +854,196 @@ body {
         font-size: 0.8125rem;
     }
 }
+
+
+/* ============================================================
+   LIVE INFERENCE SECTION (Dashboard v2 — Task 6.4)
+   ============================================================ */
+
+.live-inference-section {
+  margin-bottom: 2rem;
+}
+
+.live-inference-display {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.live-image-container {
+  text-align: center;
+  margin-bottom: 0.75rem;
+}
+
+.live-annotated-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+}
+
+.synth-disclaimer {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  color: #92400e;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+  text-align: center;
+}
+
+.live-detection-list {
+  margin-bottom: 0.75rem;
+}
+
+.detection-row {
+  display: flex;
+  gap: 1rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  margin-bottom: 2px;
+}
+
+.detection-row.hazard {
+  background: #fef2f2;
+  border-left: 3px solid #ef4444;
+}
+
+.detection-row.safe {
+  background: #f0fdf4;
+  border-left: 3px solid #22c55e;
+}
+
+.det-class {
+  font-weight: 600;
+  min-width: 160px;
+}
+
+.det-confidence {
+  min-width: 50px;
+  color: #6b7280;
+}
+
+.det-status {
+  font-weight: 700;
+  min-width: 60px;
+}
+
+.detection-row.hazard .det-status {
+  color: #ef4444;
+}
+
+.detection-row.safe .det-status {
+  color: #22c55e;
+}
+
+.det-reason {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.live-location-context {
+  font-size: 0.85rem;
+  color: #374151;
+  padding: 0.35rem 0.5rem;
+  background: #f9fafb;
+  border-radius: 4px;
+}
+
+.loc-label {
+  font-weight: 600;
+}
+
+.loc-bucket {
+  color: #9ca3af;
+}
+
+
+/* ============================================================
+   MAP GRID LAYOUT — map left, location list right
+   ============================================================ */
+
+.map-grid {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .map-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.map-wrapper {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+}
+
+/* ============================================================
+   LOCATION LIST — kanban-card style column
+   ============================================================ */
+
+.map-location-list {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.75rem;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.location-list-heading {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #374151;
+  margin: 0 0 0.5rem 0;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #e5e7eb;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.location-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 4px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.location-card:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.loc-card-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #3b82f6;
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.loc-card-name {
+  color: #374151;
+  font-weight: 500;
+}

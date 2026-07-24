@@ -104,7 +104,6 @@ _CAMERA_STUB_ID: str = os.environ.get("DASHBOARD_CAMERA_STUB_ID", "cam_stub_01")
 # Paths resolved relative to the workspace root (3 levels up from this file:
 #   src/dashboard/app.py → src/dashboard → src → workspace root)
 _WORKSPACE_ROOT: Path = Path(__file__).parent.parent.parent
-_CHECKPOINT_PATH: Path = _WORKSPACE_ROOT / "checkpoints" / "yolov12_best.pt"
 _TEST_IMAGE_DIR: Path = _WORKSPACE_ROOT / "roboflow data" / "test" / "images"
 _TRAIN_IMAGE_DIR: Path = _WORKSPACE_ROOT / "roboflow data" / "train" / "images"
 
@@ -121,25 +120,58 @@ camera_stub = CameraStub(
     test_image_path=str(_TEST_IMAGE_DIR),
 )
 
-# InferenceEngine — may fail if checkpoint is missing; set model_loaded flag
+# CheckpointResolver — auto-discovers best.pt with config override (Task 9.1)
+from dashboard.checkpoint_resolver import CheckpointResolver
+
+# Read config checkpoint_path from hazard_detection.yaml if available
+_config_checkpoint_path: str | None = None
+try:
+    import yaml as _yaml
+    _hd_config_path = _WORKSPACE_ROOT / "config" / "hazard_detection.yaml"
+    if _hd_config_path.is_file():
+        with open(_hd_config_path, "r", encoding="utf-8") as _f:
+            _hd_config = _yaml.safe_load(_f.read())
+        _config_checkpoint_path = (_hd_config or {}).get("yolo", {}).get("checkpoint_path")
+except Exception:
+    pass
+
+_checkpoint_resolver = CheckpointResolver(
+    config_path=_config_checkpoint_path,
+    discovery_pattern=str(_WORKSPACE_ROOT / "runs" / "train" / "*" / "weights" / "best.pt"),
+)
+_resolved_checkpoint = _checkpoint_resolver.resolve()
+
+# If auto-discovery/config both failed, try workspace-root .pt files as last resort
+if _resolved_checkpoint is None:
+    _fallback_pts = sorted(_WORKSPACE_ROOT.glob("*.pt"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if _fallback_pts:
+        _resolved_checkpoint = _fallback_pts[0]
+        logger.info("CheckpointResolver: using workspace-root fallback: %s", _resolved_checkpoint)
+
+# InferenceEngine — uses resolved checkpoint
 model_loaded: bool = False
 inference_engine: InferenceEngine | None = None
 
-try:
-    _config = InferenceEngineConfig(
-        checkpoint_path=str(_CHECKPOINT_PATH),
-        device=_DEVICE,
-        confidence_threshold=_CONF_THRESHOLD,
-    )
-    inference_engine = InferenceEngine(_config)
-    model_loaded = True
-except Exception as _exc:  # noqa: BLE001
-    logger.error(
-        "Failed to initialise InferenceEngine — model_loaded=False. "
-        "Inference endpoint will return HTTP 500 until the engine is available. "
-        "Error: %s: %s",
-        type(_exc).__name__,
-        _exc,
+if _resolved_checkpoint is not None:
+    try:
+        _config = InferenceEngineConfig(
+            checkpoint_path=str(_resolved_checkpoint),
+            device=_DEVICE,
+            confidence_threshold=_CONF_THRESHOLD,
+        )
+        inference_engine = InferenceEngine(_config)
+        model_loaded = True
+    except Exception as _exc:  # noqa: BLE001
+        logger.error(
+            "Failed to initialise InferenceEngine — model_loaded=False. "
+            "Error: %s: %s",
+            type(_exc).__name__,
+            _exc,
+        )
+else:
+    logger.warning(
+        "No YOLO checkpoint found (config, auto-discovery, or workspace root). "
+        "model_loaded=False; inference will return HTTP 500."
     )
 
 # ---------------------------------------------------------------------------
@@ -148,18 +180,148 @@ except Exception as _exc:  # noqa: BLE001
 
 logger.info(
     "Dashboard startup — port=%d, device=%r, confidence_threshold=%s, "
-    "hazard_store_capacity=%d, camera_stub_id=%r, model_loaded=%s",
+    "hazard_store_capacity=%d, camera_stub_id=%r, model_loaded=%s, "
+    "checkpoint_source=%r, checkpoint=%s",
     _PORT,
     _DEVICE,
     _CONF_THRESHOLD,
     _STORE_CAPACITY,
     _CAMERA_STUB_ID,
     model_loaded,
+    _checkpoint_resolver.source,
+    _resolved_checkpoint or "(none)",
 )
+
+# ---------------------------------------------------------------------------
+# FrameSourceManager + Auto-Cycle Thread (Dashboard v2)
+# ---------------------------------------------------------------------------
+
+import threading
+import time as _time
+
+from dashboard.frame_source import FrameSourceManager, FrameInfo, load_map_config
+
+_SYNTH_DIR: Path = _WORKSPACE_ROOT / "image_data_with_synth"
+_FALLBACK_DIR: Path = _WORKSPACE_ROOT / "roboflow data"
+_MAP_CONFIG_PATH: Path = _WORKSPACE_ROOT / "config" / "dashboard_map.json"
+
+# CHANGE LATER WHEN SUPERVISOR REVIEWS — hourly cycling is a placeholder;
+# reduce interval for real-time demonstration once live cameras are integrated.
+# Set DASHBOARD_CYCLE_MINUTES=10 for demo mode (10-minute cycle),
+# or leave unset for the default 60-minute (hourly) production cycle.
+_CYCLE_MINUTES: int = int(os.environ.get("DASHBOARD_CYCLE_MINUTES", "60"))
+_CYCLE_INTERVAL_SECONDS: int = _CYCLE_MINUTES * 60
+
+_map_config = load_map_config(_MAP_CONFIG_PATH)
+
+frame_source_manager = FrameSourceManager(
+    synth_dir=_SYNTH_DIR,
+    fallback_dir=_FALLBACK_DIR,
+    map_config=_map_config,
+    cycle_interval_seconds=_CYCLE_INTERVAL_SECONDS,
+)
+
+# Current auto-cycle result (updated by background thread)
+_current_cycle_result: dict | None = None
+_cycle_lock = threading.Lock()
+
+
+def _auto_cycle_loop():
+    """
+    Background thread: periodically selects a new frame from the frame source,
+    runs inference, and stores the result for /api/cycle/current.
+    """
+    # CHANGE LATER WHEN SUPERVISOR REVIEWS — hourly cycling is a placeholder;
+    # reduce interval for real-time demonstration once live cameras are integrated.
+    global _current_cycle_result
+
+    while True:
+        frame_info = frame_source_manager.get_current_frame()
+        if frame_info is not None and inference_engine is not None:
+            try:
+                results = inference_engine.run(
+                    frame_info.image,
+                    camera_id=f"location_{frame_info.map_location}",
+                    folder_name=frame_info.folder_name,
+                )
+
+                # Annotate the image
+                try:
+                    annotated_b64 = annotate(frame_info.image, results)
+                except Exception:
+                    annotated_b64 = None
+
+                # Store hazard events
+                timestamp_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                for r in results:
+                    if r.is_hazard:
+                        event = HazardEvent(
+                            event_id=str(uuid.uuid4()),
+                            hazard_type=r.hazard_reason,
+                            camera_id=f"location_{frame_info.map_location}",
+                            timestamp=timestamp_utc,
+                            confidence=r.confidence,
+                            bbox=r.bbox,
+                            annotated_image=annotated_b64,
+                            location=LocationContext.from_camera_id(f"cam_stub_{frame_info.map_location:02d}"),
+                        )
+                        hazard_store.append(event)
+
+                # Build cycle result for the API
+                with _cycle_lock:
+                    _current_cycle_result = {
+                        "annotated_image": annotated_b64,
+                        "detections": [r.to_dict() for r in results],
+                        "map_location": frame_info.map_location,
+                        "folder_name": frame_info.folder_name,
+                        "bucket": frame_info.bucket,
+                        "is_synthetic": frame_info.is_synthetic,
+                        "disclaimer": frame_source_manager.source_disclaimer,
+                        "timestamp": timestamp_utc,
+                    }
+
+            except Exception as exc:
+                logger.error("Auto-cycle inference failed: %s: %s", type(exc).__name__, exc)
+
+        # CHANGE LATER WHEN SUPERVISOR REVIEWS — hourly cycling is a placeholder;
+        # reduce interval for real-time demonstration once live cameras are integrated.
+        _time.sleep(frame_source_manager._cycle_interval)
+
+
+# Start auto-cycle in a daemon thread (won't block shutdown)
+_auto_cycle_thread = threading.Thread(target=_auto_cycle_loop, daemon=True, name="auto-cycle")
+_auto_cycle_thread.start()
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+
+@app.route("/api/cycle/current", methods=["GET"])
+def api_cycle_current():
+    """
+    GET /api/cycle/current
+
+    Returns the most recent auto-cycle inference result, or null fields
+    when no cycle has completed yet.
+
+    Response JSON:
+      { annotated_image, detections, map_location, folder_name,
+        bucket, is_synthetic, disclaimer, timestamp }
+    """
+    with _cycle_lock:
+        if _current_cycle_result is None:
+            return jsonify({
+                "annotated_image": None,
+                "detections": [],
+                "map_location": None,
+                "folder_name": None,
+                "bucket": None,
+                "is_synthetic": False,
+                "disclaimer": "",
+                "timestamp": None,
+            })
+        return jsonify(_current_cycle_result)
 
 
 @app.route("/api/inference", methods=["POST"])
@@ -376,6 +538,7 @@ def api_live_images():
 
 
 
+@app.route("/api/hazards/recent", methods=["GET"])
 def api_hazards_recent():
     """
     GET /api/hazards/recent
@@ -387,6 +550,28 @@ def api_hazards_recent():
     """
     recent = hazard_store.get_recent(3)
     return jsonify([e.to_dict() for e in recent])
+
+
+@app.route("/api/map/config", methods=["GET"])
+def api_map_config():
+    """
+    GET /api/map/config
+
+    Returns the map configuration (pin positions, location names, folder-to-location
+    mapping) from config/dashboard_map.json. Used by terminal_map.js to position
+    pins on the site map PNG.
+
+    Requirement: 3.4 (yard-hazard-inference-dashboard-v2 spec)
+    """
+    import json as _json
+    map_config_path = _WORKSPACE_ROOT / "config" / "dashboard_map.json"
+    if map_config_path.is_file():
+        try:
+            with open(map_config_path, "r", encoding="utf-8") as f:
+                return jsonify(_json.load(f))
+        except Exception as e:
+            logger.warning("api_map_config: failed to read dashboard_map.json: %s", e)
+    return jsonify({"error": "Map config not found"}), 404
 
 
 @app.route("/api/status", methods=["GET"])

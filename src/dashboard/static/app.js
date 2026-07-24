@@ -758,3 +758,83 @@ document.addEventListener('DOMContentLoaded', () => {
   initUploadArea();
   initInferenceButtons();
 });
+
+
+/* ============================================================
+   AUTO-CYCLE POLLING (Dashboard v2 — Task 6.3)
+   Polls /api/cycle/current every 30 seconds and updates the
+   Live Inference section + map pin highlight.
+   ============================================================ */
+
+let _lastCycleTimestamp = null;
+
+async function pollCycleCurrent() {
+  try {
+    const resp = await fetch('/api/cycle/current');
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    // Only update if there's a new result
+    if (!data.timestamp || data.timestamp === _lastCycleTimestamp) return;
+    _lastCycleTimestamp = data.timestamp;
+
+    // Update annotated image
+    const imgEl = document.getElementById('live-annotated-image');
+    const emptyEl = document.getElementById('live-empty-state');
+    if (data.annotated_image) {
+      imgEl.src = 'data:image/png;base64,' + data.annotated_image;
+      imgEl.style.display = 'block';
+      if (emptyEl) emptyEl.style.display = 'none';
+    }
+
+    // Show/hide disclaimer
+    const disclaimerEl = document.getElementById('synth-disclaimer');
+    if (disclaimerEl) {
+      disclaimerEl.style.display = data.is_synthetic ? 'block' : 'none';
+    }
+
+    // Update detection list
+    const listEl = document.getElementById('live-detection-list');
+    if (listEl && data.detections) {
+      listEl.innerHTML = data.detections.map(d => `
+        <div class="detection-row ${d.is_hazard ? 'hazard' : 'safe'}">
+          <span class="det-class">${d.class_label}</span>
+          <span class="det-confidence">${(d.confidence * 100).toFixed(1)}%</span>
+          <span class="det-status">${d.is_hazard ? 'HAZARD' : 'OK'}</span>
+          <span class="det-reason">${d.hazard_reason || ''}</span>
+        </div>
+      `).join('');
+    }
+
+    // Update location context
+    const locEl = document.getElementById('live-location-context');
+    if (locEl) {
+      locEl.innerHTML = `
+        <span class="loc-label">Location:</span>
+        <span class="loc-value">#${data.map_location} — ${data.folder_name || 'unknown'}</span>
+        <span class="loc-bucket">(${data.bucket || ''})</span>
+      `;
+    }
+
+    // Highlight map pin
+    if (window.terminalMap && typeof window.terminalMap.highlightLocation === 'function') {
+      if (data.detections && data.detections.some(d => d.is_hazard)) {
+        window.terminalMap.highlightLocation(data.map_location);
+      } else {
+        window.terminalMap.clearHighlight();
+      }
+    }
+
+  } catch (err) {
+    // Silent — polling failures are transient and not worth alerting on
+  }
+}
+
+// Start polling when page loads (every 30 seconds)
+setInterval(pollCycleCurrent, 30000);
+// Also poll immediately on load
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', pollCycleCurrent);
+} else {
+  pollCycleCurrent();
+}

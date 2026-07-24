@@ -106,7 +106,7 @@ class InferenceEngine:
     # Public interface
     # ------------------------------------------------------------------
 
-    def run(self, image: np.ndarray, camera_id: str) -> List[HazardResult]:
+    def run(self, image: np.ndarray, camera_id: str, folder_name: str = "") -> List[HazardResult]:
         """
         Run single-frame hazard inference on one image.
 
@@ -119,6 +119,14 @@ class InferenceEngine:
         4. Clamp each remaining detection's confidence to [0.0, 1.0].
         5. Pass filtered detections to ``classify_all()`` from ``dashboard.rules``.
         6. Return the resulting ``List[HazardResult]``.
+
+        Args:
+            image:       Decoded BGR image as a NumPy array (H x W x 3).
+            camera_id:   Camera identifier string; attached to every result.
+            folder_name: Optional dataset folder name (e.g. 'berth_401') from
+                         FrameSourceManager. Currently informational only —
+                         passed through for future orchestrator integration
+                         but does not change rule behavior today.
 
         Any exception raised by ``YOLODetector.detect()`` is caught, logged
         with ``camera_id`` and ``image.shape``, and causes the method to

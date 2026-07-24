@@ -43,6 +43,7 @@ import sys
 import threading
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # ---------------------------------------------------------------------------
@@ -143,18 +144,75 @@ class _StubFrameSampler:
     """
     Development stub used when FrameAcquisitionModule is unavailable.
 
-    Returns a synthetic FrameSequence of blank frames so the pipeline
-    can run end-to-end without real cameras.
+    If image_data_with_synth/ (or roboflow data/) is available, serves
+    real images from it so the pipeline actually produces detections.
+    Falls back to blank frames only if no image source exists at all.
     """
 
     def __init__(self, config: FrameSamplerConfig):
         self._config = config
         self._current_sequence: Optional[FrameSequence] = None
+        self._frame_source = None
+
+        # Try to load FrameSourceManager for real image fallback
+        try:
+            from dashboard.frame_source import FrameSourceManager, load_map_config
+            _workspace_root = Path(_SCRIPT_DIR).parent.parent
+            _synth_dir = _workspace_root / "image_data_with_synth"
+            _fallback_dir = _workspace_root / "roboflow data"
+            _map_config_path = _workspace_root / "config" / "dashboard_map.json"
+            _map_config = load_map_config(_map_config_path)
+
+            self._frame_source = FrameSourceManager(
+                synth_dir=_synth_dir,
+                fallback_dir=_fallback_dir,
+                map_config=_map_config,
+                cycle_interval_seconds=600,  # 10-minute cycle for pipeline demo
+            )
+            if self._frame_source._frame_count() > 0:
+                logger.info(
+                    "StubFrameSampler: using real images from %s (%d available)",
+                    "image_data_with_synth/" if self._frame_source.is_using_synth() else "roboflow data/",
+                    self._frame_source._frame_count(),
+                    extra={"component": "stub_frame_sampler"},
+                )
+            else:
+                self._frame_source = None
+        except Exception as e:
+            logger.debug(
+                "StubFrameSampler: could not load FrameSourceManager (%s), "
+                "falling back to blank frames.",
+                e,
+                extra={"component": "stub_frame_sampler"},
+            )
+            self._frame_source = None
 
     def sample(self, camera_id: str) -> Optional[FrameSequence]:
         import numpy as np
 
         now = time.time()
+
+        if self._frame_source is not None:
+            # Serve a real image from the dataset
+            frame_info = self._frame_source.get_random_frame()
+            if frame_info is not None:
+                # Wrap the single image as a repeated frame sequence
+                # (simulating multiple captures of the same scene)
+                frames = [frame_info.image.copy() for _ in range(self._config.frame_count)]
+                timestamps = [now + i * 0.033 for i in range(self._config.frame_count)]
+                self._current_sequence = FrameSequence(
+                    frames=frames,
+                    camera_id=camera_id,
+                    timestamps=timestamps,
+                )
+                logger.debug(
+                    f"StubFrameSampler: served real image from "
+                    f"'{frame_info.folder_name}' for camera '{camera_id}'",
+                    extra={"component": "stub_frame_sampler"},
+                )
+                return self._current_sequence
+
+        # Fallback: blank frames (no images available at all)
         frames = [
             np.zeros((480, 640, 3), dtype=np.uint8)
             for _ in range(self._config.frame_count)
